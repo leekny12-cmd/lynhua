@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@media print {
+  /* When printing POS A5 receipt */
+  body.is-printing-a5 * {
+    visibility: hidden;
+  }
+  body.is-printing-a5 #a5-printable-invoice,
+  body.is-printing-a5 #a5-printable-invoice * {
+    visibility: visible !important;
+  }
+  body.is-printing-a5 #a5-printable-invoice {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* When printing Order Details Invoice */
+  body.is-printing-order * {
+    visibility: hidden;
+  }
+  body.is-printing-order #printable-invoice-area,
+  body.is-printing-order #printable-invoice-area * {
+    visibility: visible !important;
+  }
+  body.is-printing-order #printable-invoice-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .no-print-section {
+    display: none !important;
+  }
+}
+
+/* Traditional color overrides for A5 Invoice to avoid OKLCH color parsing errors in html2canvas */
+#a5-printable-invoice {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+}
+
+#a5-printable-invoice .text-slate-900,
+#a5-printable-invoice h3,
+#a5-printable-invoice h4 {
+  color: #0f172a !important;
+}
+
+#a5-printable-invoice .text-slate-800,
+#a5-printable-invoice td {
+  color: #1e293b !important;
+}
+
+#a5-printable-invoice .text-slate-700 {
+  color: #334155 !important;
+}
+
+#a5-printable-invoice .text-slate-600 {
+  color: #475569 !important;
+}
+
+#a5-printable-invoice .text-slate-500 {
+  color: #64748b !important;
+}
+
+#a5-printable-invoice .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+#a5-printable-invoice .text-sky-600 {
+  color: #0284c7 !important;
+}
+
+#a5-printable-invoice .text-rose-600 {
+  color: #e11d48 !important;
+}
+
+#a5-printable-invoice .bg-slate-50\/50 {
+  background-color: #f8fafc !important;
+}
+
+#a5-printable-invoice .bg-white {
+  background-color: #ffffff !important;
+}
+
+#a5-printable-invoice .border-slate-100 {
+  border-color: #f1f5f9 !important;
+}
+
+#a5-printable-invoice .border-slate-300 {
+  border-color: #cbd5e1 !important;
+}
+
+#a5-printable-invoice .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #f1f5f9 !important;
+}
+
