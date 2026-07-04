@@ -1,0 +1,6 @@
+{
+  "name": "Hệ Thống Quản Lý Bán Hàng PHP & React",
+  "description": "Hệ thống quản lý bán hàng đa năng tích hợp POS, báo cáo doanh thu thông minh Recharts, QR Banking, quản lý kho, công nợ và bộ mã nguồn PHP 8.3 + MySQL hoàn chỉnh.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
