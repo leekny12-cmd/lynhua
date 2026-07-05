@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Product, Category, Customer, Supplier, ActivityLog, StoreConfig } from '../types';
-import { ClipboardList, Database, Save, Check, RefreshCw, Eye, Download, Info, Trash2, Store } from 'lucide-react';
+import { ClipboardList, Database, Save, Check, RefreshCw, Eye, Download, Info, Trash2, Store, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const BANK_OPTIONS = [
@@ -31,6 +31,13 @@ interface SystemViewProps {
   onUpdateStoreConfig: (config: StoreConfig) => void;
   onClearLogs: () => void;
   onWipeAllData: () => void;
+  onImportSqlData?: (data: {
+    categories?: Category[];
+    products?: Product[];
+    customers?: Customer[];
+    suppliers?: Supplier[];
+    append?: boolean;
+  }) => void;
   onShowConfirm?: (message: string, onConfirm: () => void) => void;
   onShowAlert?: (message: string, type?: 'success' | 'warning' | 'error') => void;
 }
@@ -45,11 +52,22 @@ export default function SystemView({
   onUpdateStoreConfig,
   onClearLogs,
   onWipeAllData,
+  onImportSqlData,
   onShowConfirm,
   onShowAlert
 }: SystemViewProps) {
   const [copied, setCopied] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<'LOGS' | 'BACKUP' | 'STORE_CONFIG'>('LOGS');
+
+  // SQL Import State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sqlFileName, setSqlFileName] = useState<string>('');
+  const [parsedData, setParsedData] = useState<{
+    categories: Category[];
+    products: Product[];
+    customers: Customer[];
+    suppliers: Supplier[];
+  } | null>(null);
 
   // Store config states
   const [storeName, setStoreName] = useState(storeConfig.name);
@@ -146,6 +164,246 @@ export default function SystemView({
     URL.revokeObjectURL(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const parseSqlValueList = (valuesStr: string): string[] => {
+    const values: string[] = [];
+    let current = '';
+    let inString = false;
+    let quoteChar = '';
+    let i = 0;
+    while (i < valuesStr.length) {
+      const char = valuesStr[i];
+      if (inString) {
+        if (char === quoteChar) {
+          if (valuesStr[i + 1] === quoteChar) {
+            current += quoteChar;
+            i += 2;
+          } else {
+            inString = false;
+            quoteChar = '';
+            i++;
+          }
+        } else if (char === '\\' && (valuesStr[i + 1] === "'" || valuesStr[i + 1] === '"')) {
+          current += valuesStr[i + 1];
+          i += 2;
+        } else {
+          current += char;
+          i++;
+        }
+      } else {
+        if (char === "'" || char === '"') {
+          inString = true;
+          quoteChar = char;
+          i++;
+        } else if (char === ',') {
+          values.push(current.trim());
+          current = '';
+          i++;
+        } else {
+          current += char;
+          i++;
+        }
+      }
+    }
+    values.push(current.trim());
+    return values;
+  };
+
+  const handleSqlFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSqlFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) {
+          if (onShowAlert) onShowAlert('File SQL trống rỗng!', 'warning');
+          return;
+        }
+
+        const lines = text.split('\n');
+        const importedCategories: Category[] = [];
+        const importedProducts: Product[] = [];
+        const importedCustomers: Customer[] = [];
+        const importedSuppliers: Supplier[] = [];
+
+        for (let rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line || line.startsWith('--') || line.startsWith('/*')) continue;
+
+          const valuesIndex = line.toUpperCase().indexOf('VALUES');
+          if (valuesIndex === -1) continue;
+
+          const tableAndCols = line.substring(0, valuesIndex).trim();
+          const valuesPart = line.substring(valuesIndex + 6).trim();
+
+          const tableMatch = tableAndCols.match(/INSERT\s+INTO\s+[`"']?(\w+)[`"']?\s*\(([^)]+)\)/i);
+          if (!tableMatch) continue;
+
+          const tableName = tableMatch[1].toLowerCase();
+          const columns = tableMatch[2].split(',').map(c => c.trim().replace(/[`"']/g, ''));
+
+          let valStr = valuesPart;
+          if (valStr.startsWith('(')) {
+            valStr = valStr.substring(1);
+          }
+          if (valStr.endsWith(');')) {
+            valStr = valStr.substring(0, valStr.length - 2);
+          } else if (valStr.endsWith(')')) {
+            valStr = valStr.substring(0, valStr.length - 1);
+          }
+
+          const values = parseSqlValueList(valStr);
+          const rowData: Record<string, string> = {};
+          columns.forEach((col, idx) => {
+            rowData[col] = values[idx] !== undefined ? values[idx] : '';
+          });
+
+          // Unescape doubled single quotes
+          const unescapeValue = (val: string): string => {
+            if (!val) return '';
+            return val.replace(/''/g, "'");
+          };
+
+          if (tableName === 'categories') {
+            const id = unescapeValue(rowData['id']) || `CAT_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+            const name = unescapeValue(rowData['name']);
+            const description = unescapeValue(rowData['description']);
+            if (name) {
+              importedCategories.push({ id, name, description, productCount: 0 });
+            }
+          } else if (tableName === 'products') {
+            const id = unescapeValue(rowData['id']) || `PROD_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+            const code = unescapeValue(rowData['code']);
+            const name = unescapeValue(rowData['name']);
+            const categoryId = unescapeValue(rowData['category_id']);
+            const importPrice = parseFloat(rowData['import_price']) || 0;
+            const price = parseFloat(rowData['price']) || 0;
+            const wholesalePrice = parseFloat(rowData['wholesale_price'] || rowData['price']) || price;
+            const stock = parseInt(rowData['stock']) || 0;
+            const minStock = unescapeValue(rowData['min_stock']) || '10';
+            const unit = unescapeValue(rowData['unit']) || 'Gói';
+            const image = unescapeValue(rowData['image']) || '';
+            const active = rowData['status'] !== '0';
+
+            if (name) {
+              importedProducts.push({
+                id,
+                code,
+                name,
+                categoryId,
+                importPrice,
+                price,
+                wholesalePrice,
+                stock,
+                minStock,
+                unit,
+                image,
+                active
+              });
+            }
+          } else if (tableName === 'customers') {
+            const id = unescapeValue(rowData['id']) || `CUST_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+            const name = unescapeValue(rowData['name']);
+            const phone = unescapeValue(rowData['phone']);
+            const email = unescapeValue(rowData['email']);
+            const address = unescapeValue(rowData['address']);
+            const debt = parseFloat(rowData['debt']) || 0;
+            const maxDebtLimit = parseFloat(rowData['max_debt_limit']) || 5000000;
+            const createdAt = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+            if (name) {
+              importedCustomers.push({
+                id,
+                name,
+                phone,
+                email,
+                address,
+                debt,
+                maxDebtLimit,
+                createdAt
+              });
+            }
+          } else if (tableName === 'suppliers') {
+            const id = unescapeValue(rowData['id']) || `SUP_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+            const name = unescapeValue(rowData['name']);
+            const phone = unescapeValue(rowData['phone']);
+            const email = unescapeValue(rowData['email']);
+            const address = unescapeValue(rowData['address']);
+            const debtToSupplier = parseFloat(rowData['debt_to']) || 0;
+            const createdAt = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+            if (name) {
+              importedSuppliers.push({
+                id,
+                name,
+                phone,
+                email,
+                address,
+                debtToSupplier,
+                createdAt
+              });
+            }
+          }
+        }
+
+        if (
+          importedCategories.length === 0 &&
+          importedProducts.length === 0 &&
+          importedCustomers.length === 0 &&
+          importedSuppliers.length === 0
+        ) {
+          if (onShowAlert) {
+            onShowAlert('Không tìm thấy bản ghi INSERT hợp lệ cho categories, products, customers hoặc suppliers trong file SQL!', 'warning');
+          }
+          setParsedData(null);
+          setSqlFileName('');
+          return;
+        }
+
+        setParsedData({
+          categories: importedCategories,
+          products: importedProducts,
+          customers: importedCustomers,
+          suppliers: importedSuppliers
+        });
+
+        if (onShowAlert) {
+          onShowAlert(`Phân tích thành công! Tìm thấy: ${importedCategories.length} ngành hàng, ${importedProducts.length} hàng hóa, ${importedCustomers.length} khách hàng, ${importedSuppliers.length} nhà cung cấp.`, 'success');
+        }
+      } catch (err) {
+        console.error(err);
+        if (onShowAlert) onShowAlert('Có lỗi xảy ra khi đọc file SQL!', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleApplyImport = (append: boolean) => {
+    if (!parsedData) return;
+    if (onImportSqlData) {
+      onImportSqlData({
+        ...parsedData,
+        append
+      });
+    }
+    // Clear state
+    setParsedData(null);
+    setSqlFileName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCancelImport = () => {
+    setParsedData(null);
+    setSqlFileName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -269,6 +527,94 @@ export default function SystemView({
                   </>
                 )}
               </button>
+            </div>
+
+            {/* Action Card Importer */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm space-y-4">
+              <div>
+                <div className="p-3 bg-sky-50 text-sky-600 rounded-2xl w-fit mb-4">
+                  <Upload className="w-8 h-8" />
+                </div>
+                <h4 className="font-bold text-slate-800 text-base mb-1 font-sans">Nạp Dữ Liệu từ File SQL</h4>
+                <p className="text-slate-400 text-xs leading-relaxed">
+                  Nhập dữ liệu nhanh bằng cách chọn file <code>.sql</code> đã sao lưu. Hệ thống hỗ trợ nạp Ngành hàng, Sản phẩm, Khách hàng, và Nhà cung cấp.
+                </p>
+              </div>
+
+              {!parsedData ? (
+                <div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleSqlFileImport}
+                    accept=".sql"
+                    className="hidden"
+                    id="sql-import-input"
+                  />
+                  <label
+                    htmlFor="sql-import-input"
+                    className="w-full py-3 bg-slate-150 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer border border-dashed border-slate-300"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>CHỌN FILE BACKUP (.SQL)</span>
+                  </label>
+                </div>
+              ) : (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-150 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">{sqlFileName}</span>
+                    <button
+                      onClick={handleCancelImport}
+                      className="text-slate-400 hover:text-slate-600 font-semibold text-[10px] uppercase cursor-pointer"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 font-medium">
+                    <div className="flex justify-between p-1.5 bg-white rounded border border-slate-100">
+                      <span>Ngành hàng:</span>
+                      <strong className="text-slate-800">{parsedData.categories.length}</strong>
+                    </div>
+                    <div className="flex justify-between p-1.5 bg-white rounded border border-slate-100">
+                      <span>Sản phẩm:</span>
+                      <strong className="text-slate-800">{parsedData.products.length}</strong>
+                    </div>
+                    <div className="flex justify-between p-1.5 bg-white rounded border border-slate-100">
+                      <span>Khách hàng:</span>
+                      <strong className="text-slate-800">{parsedData.customers.length}</strong>
+                    </div>
+                    <div className="flex justify-between p-1.5 bg-white rounded border border-slate-100">
+                      <span>NCC:</span>
+                      <strong className="text-slate-800">{parsedData.suppliers.length}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => handleApplyImport(true)}
+                      className="flex-1 py-2 bg-emerald-650 hover:bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow transition cursor-pointer"
+                      title="Chỉ thêm bản ghi mới, không xóa bản ghi hiện tại"
+                    >
+                      Trộn thêm
+                    </button>
+                    <button
+                      onClick={() => {
+                        const confirmMsg = "Bạn có chắc chắn muốn GHI ĐÈ toàn bộ dữ liệu? Toàn bộ danh mục, sản phẩm, khách hàng, nhà cung cấp cũ sẽ bị xóa sạch!";
+                        const proceed = () => handleApplyImport(false);
+                        if (onShowConfirm) {
+                          onShowConfirm(confirmMsg, proceed);
+                        } else if (window.confirm(confirmMsg)) {
+                          proceed();
+                        }
+                      }}
+                      className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] rounded-lg shadow transition cursor-pointer"
+                      title="Xóa toàn bộ dữ liệu cũ và ghi đè"
+                    >
+                      Ghi đè tất cả
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Danger Zone: Wipe all data card */}
@@ -556,4 +902,3 @@ export default function SystemView({
     </div>
   );
 }
-
