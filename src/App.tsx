@@ -709,6 +709,40 @@ export default function App() {
     setLogs(prev => [importLog, ...prev]);
   };
 
+  const handleApplyCloudSync = (payload: {
+    products: Product[];
+    categories: Category[];
+    customers: Customer[];
+    suppliers: Supplier[];
+    orders: Order[];
+    purchaseOrders: PurchaseOrder[];
+    debtTransactions: DebtTransaction[];
+    logs: ActivityLog[];
+    storeConfig: StoreConfig;
+  }) => {
+    if (payload.products) setProducts(payload.products);
+    if (payload.categories) setCategories(payload.categories);
+    if (payload.customers) setCustomers(payload.customers);
+    if (payload.suppliers) setSuppliers(payload.suppliers);
+    if (payload.orders) setOrders(payload.orders);
+    if (payload.purchaseOrders) setPurchaseOrders(payload.purchaseOrders);
+    if (payload.debtTransactions) setDebtTransactions(payload.debtTransactions);
+    if (payload.logs) setLogs(payload.logs);
+    if (payload.storeConfig) setStoreConfig(payload.storeConfig);
+
+    const syncLog: ActivityLog = {
+      id: `LOG_${Date.now()}`,
+      userId: currentUser.id,
+      username: currentUser.username,
+      role: currentUser.role,
+      action: 'Đồng bộ đám mây',
+      details: 'Đã hoàn tất đồng bộ hóa và tải về dữ liệu đồng nhất từ máy chủ đám mây SalesFlow Sync',
+      ipAddress: '127.0.0.1',
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+    setLogs(prev => [syncLog, ...prev]);
+  };
+
   // Nav definitions
   const NAV_ITEMS = [
     { id: 'DASHBOARD', name: 'Dashboard Overview', icon: LayoutDashboard, roles: ['ADMIN', 'SELLER', 'STOCKKEEPER'] },
@@ -933,10 +967,14 @@ export default function App() {
                   customers={customers}
                   suppliers={suppliers}
                   storeConfig={storeConfig}
+                  orders={orders}
+                  purchaseOrders={purchaseOrders}
+                  debtTransactions={debtTransactions}
                   onUpdateStoreConfig={handleUpdateStoreConfig}
                   onClearLogs={handleClearLogs}
                   onWipeAllData={handleWipeAllData}
                   onImportSqlData={handleImportSqlData}
+                  onApplyCloudSync={handleApplyCloudSync}
                   onShowConfirm={showConfirm}
                   onShowAlert={showAlert}
                 />
