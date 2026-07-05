@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Product, Category, Customer, Supplier, ActivityLog, StoreConfig } from '../types';
-import { ClipboardList, Database, Save, Check, RefreshCw, Eye, Download, Info, Trash2, Store, Upload } from 'lucide-react';
+import { Product, Category, Customer, Supplier, ActivityLog, StoreConfig, Order, PurchaseOrder, DebtTransaction } from '../types';
+import { ClipboardList, Database, Save, Check, RefreshCw, Eye, Download, Info, Trash2, Store, Upload, Smartphone, Monitor, Cloud, Link, Share2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { uploadToFirebaseSync, downloadFromFirebaseSync } from '../lib/firebase';
 
 const BANK_OPTIONS = [
   { code: 'vietcombank', name: 'Vietcombank (VCB)' },
@@ -28,6 +29,9 @@ interface SystemViewProps {
   customers: Customer[];
   suppliers: Supplier[];
   storeConfig: StoreConfig;
+  orders: Order[];
+  purchaseOrders: PurchaseOrder[];
+  debtTransactions: DebtTransaction[];
   onUpdateStoreConfig: (config: StoreConfig) => void;
   onClearLogs: () => void;
   onWipeAllData: () => void;
@@ -37,6 +41,17 @@ interface SystemViewProps {
     customers?: Customer[];
     suppliers?: Supplier[];
     append?: boolean;
+  }) => void;
+  onApplyCloudSync?: (payload: {
+    products: Product[];
+    categories: Category[];
+    customers: Customer[];
+    suppliers: Supplier[];
+    orders: Order[];
+    purchaseOrders: PurchaseOrder[];
+    debtTransactions: DebtTransaction[];
+    logs: ActivityLog[];
+    storeConfig: StoreConfig;
   }) => void;
   onShowConfirm?: (message: string, onConfirm: () => void) => void;
   onShowAlert?: (message: string, type?: 'success' | 'warning' | 'error') => void;
@@ -49,15 +64,27 @@ export default function SystemView({
   customers,
   suppliers,
   storeConfig,
+  orders,
+  purchaseOrders,
+  debtTransactions,
   onUpdateStoreConfig,
   onClearLogs,
   onWipeAllData,
   onImportSqlData,
+  onApplyCloudSync,
   onShowConfirm,
   onShowAlert
 }: SystemViewProps) {
   const [copied, setCopied] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'LOGS' | 'BACKUP' | 'STORE_CONFIG'>('LOGS');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'LOGS' | 'BACKUP' | 'STORE_CONFIG' | 'SYNC'>('LOGS');
+
+  // Cloud Sync States
+  const [syncCode, setSyncCode] = useState<string>(() => localStorage.getItem('sf_sync_code') || '');
+  const [inputSyncCode, setInputSyncCode] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncedTime, setLastSyncedTime] = useState<string>(() => localStorage.getItem('sf_last_synced_time') || '');
+  const [autoSync, setAutoSync] = useState<boolean>(() => localStorage.getItem('sf_auto_sync') === 'true');
+  const [syncProvider, setSyncProvider] = useState<'API' | 'FIREBASE'>(() => (localStorage.getItem('sf_sync_provider') as any) || 'FIREBASE');
 
   // SQL Import State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -406,6 +433,178 @@ export default function SystemView({
     }
   };
 
+  const handleUploadSync = async (silent = false) => {
+    setIsSyncing(true);
+    try {
+      const payload = {
+        products,
+        categories,
+        customers,
+        suppliers,
+        orders,
+        purchaseOrders,
+        debtTransactions,
+        logs,
+        storeConfig
+      };
+
+      if (syncProvider === 'FIREBASE') {
+        const result = await uploadToFirebaseSync(syncCode || null, payload);
+        if (result.success) {
+          setSyncCode(result.code);
+          localStorage.setItem('sf_sync_code', result.code);
+          const timeStr = new Date().toLocaleTimeString('vi-VN') + ' ' + new Date().toLocaleDateString('vi-VN');
+          setLastSyncedTime(timeStr);
+          localStorage.setItem('sf_last_synced_time', timeStr);
+          if (!silent && onShowAlert) {
+            onShowAlert(`Đồng bộ dữ liệu lên Firebase Cloud thành công! Mã kết nối của bạn là: ${result.code}`, 'success');
+          }
+        } else {
+          if (!silent && onShowAlert) {
+            onShowAlert(result.message || 'Lỗi đồng bộ dữ liệu qua Firebase!', 'error');
+          }
+        }
+      } else {
+        const res = await fetch('/api/sync/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            code: syncCode || null,
+            data: payload
+          })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+          setSyncCode(result.code);
+          localStorage.setItem('sf_sync_code', result.code);
+          const timeStr = new Date().toLocaleTimeString('vi-VN') + ' ' + new Date().toLocaleDateString('vi-VN');
+          setLastSyncedTime(timeStr);
+          localStorage.setItem('sf_last_synced_time', timeStr);
+          if (!silent && onShowAlert) {
+            onShowAlert(`Đồng bộ dữ liệu lên máy chủ SalesFlow thành công! Mã kết nối của bạn là: ${result.code}`, 'success');
+          }
+        } else {
+          if (!silent && onShowAlert) {
+            onShowAlert(result.message || 'Lỗi đồng bộ dữ liệu!', 'error');
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (!silent && onShowAlert) {
+        onShowAlert('Không thể kết nối đến máy chủ đồng bộ!', 'error');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDownloadSync = async (codeToDownload: string) => {
+    const targetCode = codeToDownload.trim();
+    if (!targetCode) {
+      if (onShowAlert) onShowAlert('Vui lòng nhập mã đồng bộ gồm 6 chữ số!', 'warning');
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      let result: any;
+      if (syncProvider === 'FIREBASE') {
+        result = await downloadFromFirebaseSync(targetCode);
+      } else {
+        const res = await fetch(`/api/sync/download/${targetCode}`);
+        const parsed = await res.json();
+        result = parsed;
+      }
+
+      if (result.success) {
+        const proceed = () => {
+          if (onApplyCloudSync && result.data) {
+            onApplyCloudSync(result.data);
+            setSyncCode(targetCode);
+            localStorage.setItem('sf_sync_code', targetCode);
+            const timeStr = new Date().toLocaleTimeString('vi-VN') + ' ' + new Date().toLocaleDateString('vi-VN');
+            setLastSyncedTime(timeStr);
+            localStorage.setItem('sf_last_synced_time', timeStr);
+            if (onShowAlert) {
+              onShowAlert(`Tải và đồng bộ dữ liệu thành công từ ${syncProvider === 'FIREBASE' ? 'Firebase Cloud' : 'máy chủ SalesFlow'}! Thiết bị đã được kết nối.`, 'success');
+            }
+          }
+        };
+
+        const confirmMsg = `Bạn có chắc chắn muốn TẢI và ĐÈ dữ liệu từ mã ${targetCode}? Dữ liệu hiện tại trên thiết bị này sẽ bị thay thế hoàn toàn!`;
+        if (onShowConfirm) {
+          onShowConfirm(confirmMsg, proceed);
+        } else if (window.confirm(confirmMsg)) {
+          proceed();
+        }
+      } else {
+        if (onShowAlert) {
+          onShowAlert(result.message || 'Lỗi tải dữ liệu!', 'error');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      if (onShowAlert) {
+        onShowAlert('Không thể kết nối đến máy chủ đồng bộ!', 'error');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDisconnectSync = () => {
+    const proceed = () => {
+      setSyncCode('');
+      setInputSyncCode('');
+      setLastSyncedTime('');
+      localStorage.removeItem('sf_sync_code');
+      localStorage.removeItem('sf_last_synced_time');
+      if (onShowAlert) onShowAlert('Đã hủy kết nối đồng bộ thiết bị!', 'success');
+    };
+
+    const confirmMsg = "Bạn có chắc chắn muốn ngắt kết nối đồng bộ đám mây trên thiết bị này?";
+    if (onShowConfirm) {
+      onShowConfirm(confirmMsg, proceed);
+    } else if (window.confirm(confirmMsg)) {
+      proceed();
+    }
+  };
+
+  const handleSetSyncProvider = (provider: 'API' | 'FIREBASE') => {
+    setSyncProvider(provider);
+    localStorage.setItem('sf_sync_provider', provider);
+    setSyncCode('');
+    setInputSyncCode('');
+    setLastSyncedTime('');
+    localStorage.removeItem('sf_sync_code');
+    localStorage.removeItem('sf_last_synced_time');
+    if (onShowAlert) {
+      onShowAlert(`Đã chuyển sang đồng bộ qua ${provider === 'FIREBASE' ? 'Firebase Firestore Cloud' : 'Máy chủ SalesFlow'}. Vui lòng bấm kích hoạt để tạo mã mới cho phương thức này!`, 'success');
+    }
+  };
+
+  const handleToggleAutoSync = (checked: boolean) => {
+    setAutoSync(checked);
+    localStorage.setItem('sf_auto_sync', checked ? 'true' : 'false');
+    if (onShowAlert) {
+      onShowAlert(checked ? 'Đã bật chế độ tự động đồng bộ!' : 'Đã tắt chế độ tự động đồng bộ!', 'success');
+    }
+  };
+
+  // Auto Sync loop when state changes or periodically
+  React.useEffect(() => {
+    if (!autoSync || !syncCode) return;
+    const interval = setInterval(() => {
+      handleUploadSync(true); // silent sync
+    }, 25000);
+
+    return () => clearInterval(interval);
+  }, [autoSync, syncCode, syncProvider, products, categories, customers, suppliers, orders, purchaseOrders, debtTransactions, logs, storeConfig]);
+
   return (
     <div className="space-y-6">
       {/* Sub Tabs Selection */}
@@ -442,6 +641,17 @@ export default function SystemView({
         >
           <Store className="w-4 h-4" />
           <span>Thông Tin Cửa Hàng & Hóa Đơn</span>
+        </button>
+        <button
+          onClick={() => setActiveSettingsTab('SYNC')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
+            activeSettingsTab === 'SYNC'
+              ? 'bg-white text-sky-600 shadow-sm'
+              : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <Cloud className="w-4 h-4 text-emerald-600" />
+          <span>Đồng Bộ Thiết Bị (Máy Tính & Điện Thoại)</span>
         </button>
       </div>
 
@@ -899,6 +1109,226 @@ export default function SystemView({
           </div>
         </div>
       )}
+
+      {/* VIEW: DEVICE & CLOUD SYNCHRONIZATION */}
+      {activeSettingsTab === 'SYNC' && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent rounded-2xl border border-emerald-100 p-5 flex flex-col md:flex-row gap-5 items-start md:items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                  <Cloud className="w-5 h-5" />
+                </span>
+                <h4 className="font-bold text-slate-800 text-base">Đồng bộ Cloud (Máy tính & Điện thoại)</h4>
+              </div>
+              <p className="text-slate-500 text-xs leading-relaxed max-w-3xl">
+                Lưu trữ và đồng bộ hóa tức thì toàn bộ hàng hóa, khách hàng, nhà cung cấp, hóa đơn và doanh thu giữa máy tính, laptop, máy tính bảng và điện thoại di động của bạn hoàn toàn miễn phí.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] font-bold">
+              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+              <span>{syncProvider === 'FIREBASE' ? 'Firebase Realtime Sync' : 'SalesFlow Sync API'}</span>
+            </div>
+          </div>
+
+          {/* PROVIDER SELECTION */}
+          <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+            <div className="space-y-0.5">
+              <h5 className="font-bold text-slate-800 text-xs">Phương thức kết nối lưu trữ</h5>
+              <p className="text-slate-400 text-[10px]">Chọn nền tảng đám mây bạn muốn dùng để chuyển dữ liệu</p>
+            </div>
+            <div className="flex gap-2 bg-slate-200 p-1 rounded-xl w-full md:w-auto">
+              <button
+                onClick={() => handleSetSyncProvider('FIREBASE')}
+                className={`flex-1 md:flex-initial px-4 py-2 text-[11px] font-bold rounded-lg transition ${
+                  syncProvider === 'FIREBASE'
+                    ? 'bg-white text-emerald-600 shadow-sm font-bold'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                🔥 Firebase Firestore
+              </button>
+              <button
+                onClick={() => handleSetSyncProvider('API')}
+                className={`flex-1 md:flex-initial px-4 py-2 text-[11px] font-bold rounded-lg transition ${
+                  syncProvider === 'API'
+                    ? 'bg-white text-sky-600 shadow-sm font-bold'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                💻 SalesFlow API
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* CARD 1: CURRENT DEVICE CONNECTION */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h5 className="font-bold text-slate-800 text-sm mb-1">Thiết bị hiện tại</h5>
+                  <p className="text-slate-400 text-[11px]">Trạng thái liên kết đám mây của thiết bị này</p>
+                </div>
+                {syncCode ? (
+                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold text-[10px] rounded-full border border-emerald-100 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> ĐÃ LIÊN KẾT
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                    ĐỘC LẬP (OFFLINE)
+                  </span>
+                )}
+              </div>
+
+              {syncCode ? (
+                <div className="space-y-5">
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center space-y-3">
+                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">MÃ ĐỒNG BỘ THIẾT BỊ</span>
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="font-mono text-3xl font-black text-slate-800 tracking-wider bg-white px-5 py-2.5 rounded-xl border border-slate-200/60 shadow-sm">
+                        {syncCode.slice(0, 3)} {syncCode.slice(3)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(syncCode);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                        className="p-3 bg-white text-slate-500 hover:text-sky-600 border border-slate-200 rounded-xl hover:shadow transition"
+                        title="Sao chép mã đồng bộ"
+                      >
+                        {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Save className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-slate-400 text-[10px] leading-relaxed max-w-xs mx-auto">
+                      Nhập mã này trên điện thoại hoặc thiết bị khác để kéo dữ liệu của cửa hàng này về.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-slate-50">
+                      <span className="text-slate-400">Đồng bộ tự động:</span>
+                      <button
+                        onClick={() => handleToggleAutoSync(!autoSync)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                          autoSync ? 'bg-emerald-500' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                            autoSync ? 'translate-x-4.5' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-50">
+                      <span className="text-slate-400">Lần đồng bộ cuối:</span>
+                      <strong className="text-slate-700 font-mono">{lastSyncedTime || 'Chưa thực hiện'}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleUploadSync(false)}
+                      disabled={isSyncing}
+                      className="flex-1 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-600/10 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ lên Cloud'}</span>
+                    </button>
+                    <button
+                      onClick={handleDisconnectSync}
+                      className="px-4 py-3 bg-rose-50 text-rose-600 hover:bg-rose-100 font-bold text-xs rounded-xl transition"
+                    >
+                      Hủy liên kết
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100 text-center space-y-3">
+                    <div className="mx-auto w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 border border-emerald-100 shadow-sm">
+                      <Share2 className="w-6 h-6" />
+                    </div>
+                    <h6 className="font-bold text-slate-800 text-xs">Kích hoạt kết nối và tạo mã đồng bộ mới</h6>
+                    <p className="text-slate-500 text-[10px] leading-relaxed">
+                      Thiết bị này đang hoạt động offline cục bộ. Nhấp nút bên dưới để tải dữ liệu của bạn lên máy chủ đồng bộ bảo mật và tạo mã kết nối gồm 6 số.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleUploadSync(false)}
+                    disabled={isSyncing}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow flex items-center justify-center gap-2"
+                  >
+                    <Cloud className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? 'Đang kích hoạt...' : 'Bắt đầu đồng bộ & Tạo mã'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* CARD 2: LINK OTHER DEVICES */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-6 flex flex-col justify-between">
+              <div className="space-y-5">
+                <div>
+                  <h5 className="font-bold text-slate-800 text-sm mb-1 font-sans">Liên kết thiết bị còn lại (Máy tính / Điện thoại khác)</h5>
+                  <p className="text-slate-400 text-[11px]">Nhập mã kết nối từ thiết bị khác để gộp hoặc tải dữ liệu về máy này</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1.5">MÃ ĐỒNG BỘ 6 SỐ</label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      placeholder="Nhập 6 chữ số (Ví dụ: 123456)"
+                      value={inputSyncCode}
+                      onChange={(e) => setInputSyncCode(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-sky-500 focus:bg-white text-slate-800 placeholder-slate-400 text-sm font-bold tracking-widest text-center"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSync(inputSyncCode)}
+                    disabled={isSyncing || inputSyncCode.length < 6}
+                    className="w-full py-3 bg-slate-900 hover:bg-slate-850 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2"
+                  >
+                    <Link className="w-4 h-4" />
+                    <span>{isSyncing ? 'Đang kết nối...' : 'Liên kết & Tải dữ liệu về'}</span>
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100">
+                  <div className="flex gap-2 items-start text-[10px] text-slate-400">
+                    <Info className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5 leading-relaxed text-slate-500">
+                      <span className="font-bold text-slate-700">Hướng dẫn liên kết nhanh:</span>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Trên máy có sẵn dữ liệu của bạn, bấm <strong className="text-slate-700">"Bắt đầu đồng bộ"</strong> ở ô bên trái để lấy mã 6 số.</li>
+                        <li>Trên điện thoại hoặc máy tính mới, truy cập mục này, nhập mã 6 số đó vào ô phía trên.</li>
+                        <li>Bấm <strong className="text-slate-700">"Liên kết & Tải dữ liệu về"</strong> để kéo dữ liệu về máy này.</li>
+                        <li>Bật công tắc <strong className="text-slate-700">"Đồng bộ tự động"</strong> để bất kỳ thao tác bán hàng, nhập kho nào ở cả 2 thiết bị đều tự động cập nhật cho nhau.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-4 text-slate-400 text-[10px] pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-1">
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>Máy tính (PC/Laptop)</span>
+                </div>
+                <div className="text-slate-200">|</div>
+                <div className="flex items-center gap-1">
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Điện thoại (iOS/Android)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
