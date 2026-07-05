@@ -1,0 +1,10 @@
+{
+  "collections": {
+    "sync_rooms": {
+      "fields": {
+        "data": "map",
+        "updatedAt": "string"
+      }
+    }
+  }
+}
