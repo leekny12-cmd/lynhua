@@ -4,8 +4,6 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // GitHub Pages => /lynhua/
-  // Vercel => /
   base: process.env.VERCEL ? '/' : '/lynhua/',
 
   plugins: [react(), tailwindcss()],
