@@ -649,66 +649,6 @@ export default function App() {
     setLogs([wipeLog]);
   };
 
-  const handleImportSqlData = (data: {
-    categories?: Category[];
-    products?: Product[];
-    customers?: Customer[];
-    suppliers?: Supplier[];
-    append?: boolean;
-  }) => {
-    const { categories: impCats, products: impProds, customers: impCusts, suppliers: impSups, append } = data;
-    
-    if (append) {
-      if (impCats && impCats.length > 0) {
-        setCategories(prev => {
-          const prevIds = new Set(prev.map(c => c.id));
-          const filtered = impCats.filter(c => !prevIds.has(c.id));
-          return [...prev, ...filtered];
-        });
-      }
-      if (impProds && impProds.length > 0) {
-        setProducts(prev => {
-          const prevCodes = new Set(prev.filter(p => p.code).map(p => p.code));
-          const prevIds = new Set(prev.map(p => p.id));
-          const filtered = impProds.filter(p => !prevIds.has(p.id) && (!p.code || !prevCodes.has(p.code)));
-          return [...prev, ...filtered];
-        });
-      }
-      if (impCusts && impCusts.length > 0) {
-        setCustomers(prev => {
-          const prevIds = new Set(prev.map(c => c.id));
-          const filtered = impCusts.filter(c => !prevIds.has(c.id));
-          return [...prev, ...filtered];
-        });
-      }
-      if (impSups && impSups.length > 0) {
-        setSuppliers(prev => {
-          const prevIds = new Set(prev.map(s => s.id));
-          const filtered = impSups.filter(s => !prevIds.has(s.id));
-          return [...prev, ...filtered];
-        });
-      }
-    } else {
-      // Overwrite / Replace
-      if (impCats) setCategories(impCats);
-      if (impProds) setProducts(impProds);
-      if (impCusts) setCustomers(impCusts);
-      if (impSups) setSuppliers(impSups);
-    }
-
-    const importLog: ActivityLog = {
-      id: `LOG_${Date.now()}`,
-      userId: currentUser.id,
-      username: currentUser.username,
-      role: currentUser.role,
-      action: 'Nhập dữ liệu SQL',
-      details: `Đã nạp thành công từ SQL backup (${append ? 'Trộn thêm' : 'Ghi đè'}): ${impCats?.length || 0} ngành hàng, ${impProds?.length || 0} sản phẩm, ${impCusts?.length || 0} đối tác khách hàng, ${impSups?.length || 0} nhà cung cấp`,
-      ipAddress: '127.0.0.1',
-      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
-    };
-    setLogs(prev => [importLog, ...prev]);
-  };
-
   // Nav definitions
   const NAV_ITEMS = [
     { id: 'DASHBOARD', name: 'Dashboard Overview', icon: LayoutDashboard, roles: ['ADMIN', 'SELLER', 'STOCKKEEPER'] },
@@ -936,7 +876,6 @@ export default function App() {
                   onUpdateStoreConfig={handleUpdateStoreConfig}
                   onClearLogs={handleClearLogs}
                   onWipeAllData={handleWipeAllData}
-                  onImportSqlData={handleImportSqlData}
                   onShowConfirm={showConfirm}
                   onShowAlert={showAlert}
                 />
