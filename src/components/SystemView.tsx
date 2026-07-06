@@ -310,6 +310,7 @@ export default function SystemView({
             const importPrice = parseFloat(rowData['import_price']) || 0;
             const price = parseFloat(rowData['price']) || 0;
             const wholesalePrice = parseFloat(rowData['wholesale_price'] || rowData['price']) || price;
+            const dealerPrice = parseFloat(rowData['dealer_price'] || rowData['price']) || price;
             const stock = parseInt(rowData['stock']) || 0;
             const minStock = unescapeValue(rowData['min_stock']) || '10';
             const unit = unescapeValue(rowData['unit']) || 'Gói';
@@ -325,6 +326,7 @@ export default function SystemView({
                 importPrice,
                 price,
                 wholesalePrice,
+                dealerPrice,
                 stock,
                 minStock,
                 unit,

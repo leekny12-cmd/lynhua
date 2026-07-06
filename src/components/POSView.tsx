@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Product, Category, Customer, Order, OrderItem, User, StoreConfig } from '../types';
-import { Search, Barcode, Trash2, UserPlus, CreditCard, Banknote, QrCode, Ticket, CheckCircle, Printer, X, FileDown, Eye, FolderOpen, Save, FileText } from 'lucide-react';
+import { Search, Barcode, Trash2, UserPlus, CreditCard, Banknote, QrCode, Ticket, CheckCircle, Printer, X, FileDown, Eye, FolderOpen, Save, FileText, Maximize2, Minimize2, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from '../lib/html2canvas-patch';
 import { jsPDF } from 'jspdf';
@@ -9,7 +9,7 @@ interface POSDraft {
   id: string;
   customerName: string;
   customerId: string;
-  items: { product: Product; quantity: number; price: number; priceType: 'RETAIL' | 'WHOLESALE' | 'IMPORT' | 'CUSTOM' }[];
+  items: { product: Product; quantity: number; price: number; priceType: 'RETAIL' | 'WHOLESALE' | 'DEALER' | 'IMPORT' | 'CUSTOM' }[];
   discount: number;
   vatRate?: number;
   paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'DEBT';
@@ -42,7 +42,7 @@ export default function POSView({
 }: POSViewProps) {
 
   // POS States
-  const [cart, setCart] = useState<{ product: Product; quantity: number; price: number; priceType: 'RETAIL' | 'WHOLESALE' | 'IMPORT' | 'CUSTOM' }[]>([]);
+  const [cart, setCart] = useState<{ product: Product; quantity: number; price: number; priceType: 'RETAIL' | 'WHOLESALE' | 'DEALER' | 'IMPORT' | 'CUSTOM' }[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || 'CUST001');
@@ -86,6 +86,77 @@ export default function POSView({
     return saved ? JSON.parse(saved) : [];
   });
 
+  // State for Compact POS selling and Compact Invoice print
+  const [compactMode, setCompactMode] = useState<boolean>(() => {
+    return localStorage.getItem('sf_pos_compact') === 'true';
+  });
+  const [invoiceFormat, setInvoiceFormat] = useState<'A5' | 'K80'>(() => {
+    return (localStorage.getItem('sf_invoice_format') as 'A5' | 'K80') || 'A5';
+  });
+  const [checkoutExpanded, setCheckoutExpanded] = useState<boolean>(() => {
+    return localStorage.getItem('sf_pos_checkout_expanded') === 'true';
+  });
+  const [paymentMethodCollapsed, setPaymentMethodCollapsed] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sf_payment_method_collapsed');
+    return saved === null ? true : saved === 'true';
+  });
+  const [invoicePriceType, setInvoicePriceType] = useState<'RETAIL' | 'WHOLESALE' | 'DEALER'>(() => {
+    return (localStorage.getItem('sf_pos_invoice_price_type') as 'RETAIL' | 'WHOLESALE' | 'DEALER') || 'RETAIL';
+  });
+
+  const toggleCheckoutExpanded = () => {
+    const nextVal = !checkoutExpanded;
+    setCheckoutExpanded(nextVal);
+    localStorage.setItem('sf_pos_checkout_expanded', String(nextVal));
+    if (onShowAlert) {
+      onShowAlert(nextVal ? 'Đã mở rộng bảng thanh toán & thu gọn danh sách sản phẩm!' : 'Đã khôi phục bố cục tiêu chuẩn.', 'success');
+    }
+  };
+
+  const handleInvoicePriceTypeChange = (type: 'RETAIL' | 'WHOLESALE' | 'DEALER') => {
+    setInvoicePriceType(type);
+    localStorage.setItem('sf_pos_invoice_price_type', type);
+    
+    // Automatically switch all products in the cart to the chosen price type
+    const updated = cart.map(item => {
+      let nextPrice = item.price;
+      if (type === 'RETAIL') {
+        nextPrice = item.product.price;
+      } else if (type === 'WHOLESALE') {
+        nextPrice = item.product.wholesalePrice || item.product.price;
+      } else if (type === 'DEALER') {
+        nextPrice = item.product.dealerPrice || item.product.price;
+      }
+      return {
+        ...item,
+        priceType: type,
+        price: nextPrice
+      };
+    });
+    setCart(updated);
+
+    if (onShowAlert) {
+      onShowAlert(`Đã chuyển toàn bộ giỏ hàng sang ${type === 'RETAIL' ? 'Giá bán lẻ' : type === 'WHOLESALE' ? 'Giá bán sỉ' : 'Giá đại lý'}!`, 'success');
+    }
+  };
+
+  const toggleCompactMode = () => {
+    const nextVal = !compactMode;
+    setCompactMode(nextVal);
+    localStorage.setItem('sf_pos_compact', String(nextVal));
+    if (onShowAlert) {
+      onShowAlert(nextVal ? 'Đã kích hoạt chế độ POS bán hàng siêu thu gọn!' : 'Đã quay lại chế độ POS tiêu chuẩn.', 'success');
+    }
+  };
+
+  const handleInvoiceFormatChange = (format: 'A5' | 'K80') => {
+    setInvoiceFormat(format);
+    localStorage.setItem('sf_invoice_format', format);
+    if (onShowAlert) {
+      onShowAlert(`Đã chuyển đổi sang khổ in ${format === 'K80' ? 'K80 (in nhiệt tối giản)' : 'A5 (tiêu chuẩn)'}!`, 'success');
+    }
+  };
+
   // Sync drafts list with localStorage
   useEffect(() => {
     localStorage.setItem('sf_pos_drafts', JSON.stringify(drafts));
@@ -107,13 +178,14 @@ export default function POSView({
       
       const imgData = canvas.toDataURL('image/png');
       
-      // A5 size: 148mm x 210mm
-      const pdf = new jsPDF('p', 'mm', 'a5');
-
-      const pdfWidth = 148;
-      const pdfHeight = 210;
+      const isK80 = invoiceFormat === 'K80';
+      const pdfWidth = isK80 ? 80 : 148;
       const imgWidth = pdfWidth;
       const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pdfHeight = isK80 ? imgHeight : 210;
+
+      // Create PDF
+      const pdf = new jsPDF('p', 'mm', isK80 ? [pdfWidth, pdfHeight] : 'a5');
 
       let heightLeft = imgHeight;
       let position = 0;
@@ -121,7 +193,7 @@ export default function POSView({
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
 
-      while (heightLeft > 0) {
+      while (heightLeft > 0 && !isK80) {
         position = heightLeft - imgHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
@@ -162,6 +234,8 @@ export default function POSView({
     // Create and inject custom print-specific stylesheet to isolate the printing area
     const style = document.createElement('style');
     style.id = 'direct-print-style';
+    
+    const isK80 = invoiceFormat === 'K80';
     style.innerHTML = `
       @media print {
         /* Hide all existing elements inside body during print */
@@ -175,20 +249,27 @@ export default function POSView({
           background: white !important;
           color: black !important;
         }
-        /* Target and style the cloned invoice specifically to match A5 dimensions */
+        /* Target and style the cloned invoice specifically */
         #a5-printable-invoice {
           display: block !important;
-          width: 148mm !important;
-          min-height: 210mm !important;
+          width: ${isK80 ? '80mm' : '148mm'} !important;
+          min-height: ${isK80 ? 'auto' : '210mm'} !important;
           margin: 0 auto !important;
-          padding: 10mm 8mm !important;
+          padding: ${isK80 ? '4mm 2mm' : '10mm 8mm'} !important;
           background: white !important;
           color: black !important;
           box-shadow: none !important;
           border: none !important;
+          font-size: ${isK80 ? '11px' : '13px'} !important;
+        }
+        #a5-printable-invoice table {
+          font-size: ${isK80 ? '10px' : '12px'} !important;
+        }
+        #a5-printable-invoice .w-60 {
+          width: ${isK80 ? '100%' : '15rem'} !important;
         }
         @page {
-          size: A5;
+          size: ${isK80 ? '80mm auto' : 'A5'};
           margin: 0;
         }
       }
@@ -221,6 +302,8 @@ export default function POSView({
     // Create and inject custom print-specific stylesheet to isolate the printing area
     const style = document.createElement('style');
     style.id = 'direct-print-style';
+    
+    const isK80 = invoiceFormat === 'K80';
     style.innerHTML = `
       @media print {
         /* Hide all existing elements inside body during print */
@@ -234,20 +317,27 @@ export default function POSView({
           background: white !important;
           color: black !important;
         }
-        /* Target and style the cloned invoice specifically to match A5 dimensions */
+        /* Target and style the cloned invoice specifically */
         #a5-printable-invoice-preview {
           display: block !important;
-          width: 148mm !important;
-          min-height: 210mm !important;
+          width: ${isK80 ? '80mm' : '148mm'} !important;
+          min-height: ${isK80 ? 'auto' : '210mm'} !important;
           margin: 0 auto !important;
-          padding: 10mm 8mm !important;
+          padding: ${isK80 ? '4mm 2mm' : '10mm 8mm'} !important;
           background: white !important;
           color: black !important;
           box-shadow: none !important;
           border: none !important;
+          font-size: ${isK80 ? '11px' : '13px'} !important;
+        }
+        #a5-printable-invoice-preview table {
+          font-size: ${isK80 ? '10px' : '12px'} !important;
+        }
+        #a5-printable-invoice-preview .w-60 {
+          width: ${isK80 ? '100%' : '15rem'} !important;
         }
         @page {
-          size: A5;
+          size: ${isK80 ? '80mm auto' : 'A5'};
           margin: 0;
         }
       }
@@ -276,11 +366,14 @@ export default function POSView({
       });
       
       const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a5');
-      const pdfWidth = 148;
-      const pdfHeight = 210;
+      
+      const isK80 = invoiceFormat === 'K80';
+      const pdfWidth = isK80 ? 80 : 148;
       const imgWidth = pdfWidth;
       const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pdfHeight = isK80 ? imgHeight : 210;
+
+      const pdf = new jsPDF('p', 'mm', isK80 ? [pdfWidth, pdfHeight] : 'a5');
 
       let heightLeft = imgHeight;
       let position = 0;
@@ -288,7 +381,7 @@ export default function POSView({
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
 
-      while (heightLeft > 0) {
+      while (heightLeft > 0 && !isK80) {
         position = heightLeft - imgHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
@@ -297,7 +390,7 @@ export default function POSView({
 
       pdf.save(`HoaDon_XEM_TRUOC_${previewingOrder.code}.pdf`);
     } catch (error) {
-      console.error('Error exporting PDF:', error);
+      console.error('Error exporting PDF preview:', error);
       if (onShowAlert) {
         onShowAlert('Đã xảy ra lỗi khi xuất file PDF. Vui lòng thử lại.', 'error');
       }
@@ -448,7 +541,7 @@ export default function POSView({
     return matchesSearch && matchesCategory;
   });
 
-  const handleProductClick = (product: Product, preferredPriceType: 'RETAIL' | 'WHOLESALE' = 'RETAIL') => {
+  const handleProductClick = (product: Product, preferredPriceType: 'RETAIL' | 'WHOLESALE' | 'DEALER' = invoicePriceType) => {
     if (product.stock <= 0) {
       if (onShowAlert) {
         onShowAlert(`Sản phẩm '${product.name}' đã hết hàng trong kho!`, 'warning');
@@ -459,9 +552,12 @@ export default function POSView({
     }
 
     const existingIndex = cart.findIndex(item => item.product.id === product.id);
-    const chosenPrice = preferredPriceType === 'WHOLESALE'
-      ? (product.wholesalePrice || product.price)
-      : product.price;
+    let chosenPrice = product.price;
+    if (preferredPriceType === 'WHOLESALE') {
+      chosenPrice = product.wholesalePrice || product.price;
+    } else if (preferredPriceType === 'DEALER') {
+      chosenPrice = product.dealerPrice || product.price;
+    }
 
     if (existingIndex > -1) {
       const currentQty = cart[existingIndex].quantity;
@@ -545,7 +641,7 @@ export default function POSView({
     setCart(cart.filter(item => item.product.id !== productId));
   };
 
-  const handlePriceTypeChange = (productId: string, type: 'RETAIL' | 'WHOLESALE' | 'IMPORT') => {
+  const handlePriceTypeChange = (productId: string, type: 'RETAIL' | 'WHOLESALE' | 'DEALER' | 'IMPORT') => {
     const existingIndex = cart.findIndex(item => item.product.id === productId);
     if (existingIndex === -1) return;
 
@@ -556,6 +652,8 @@ export default function POSView({
       item.price = item.product.price;
     } else if (type === 'WHOLESALE') {
       item.price = item.product.wholesalePrice || item.product.price;
+    } else if (type === 'DEALER') {
+      item.price = item.product.dealerPrice || item.product.price;
     } else if (type === 'IMPORT') {
       item.price = item.product.importPrice;
     }
@@ -709,9 +807,31 @@ export default function POSView({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-5 lg:h-[calc(100vh-140px)] lg:min-h-[760px] min-h-0 select-none">
+    <div className="flex flex-col lg:flex-row gap-5 lg:h-[calc(100vh-100px)] lg:min-h-[960px] min-h-0 select-none">
       {/* LEFT: Product Grid & Category Filters */}
-      <div className="flex-1 bg-white rounded-2xl border border-slate-100 p-5 shadow-sm flex flex-col h-[550px] lg:h-full overflow-hidden" onClick={keepFocus}>
+      <div className={`bg-white rounded-2xl border border-slate-100 p-5 shadow-sm flex flex-col h-[820px] lg:h-full overflow-hidden transition-all duration-300 ${
+        checkoutExpanded ? 'w-full lg:w-96' : 'flex-1'
+      }`} onClick={keepFocus}>
+        {/* Compact Mode Controller Header */}
+        <div className="flex justify-between items-center mb-4 shrink-0 bg-slate-50/70 px-3.5 py-2.5 rounded-xl border border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
+            <h3 className="font-extrabold text-slate-800 text-xs sm:text-sm tracking-wide uppercase">BÁN HÀNG TẠI QUẦY</h3>
+          </div>
+          <button
+            type="button"
+            onClick={toggleCompactMode}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+              compactMode
+                ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+            title="Bật/Tắt chế độ thu gọn để xem nhiều sản phẩm hơn"
+          >
+            <span>{compactMode ? '⚡ Chế độ: Siêu Thu gọn' : '📱 Chế độ: Tiêu chuẩn'}</span>
+          </button>
+        </div>
+
         {/* Search & Barcode scanning panel */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 shrink-0">
           <div className="relative">
@@ -774,73 +894,74 @@ export default function POSView({
               <p className="text-sm">Không tìm thấy sản phẩm phù hợp.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className={`grid transition-all duration-300 ${
+              checkoutExpanded
+                ? 'grid-cols-2 gap-2.5'
+                : compactMode
+                  ? 'grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2.5'
+                  : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4'
+            }`}>
               {filteredProducts.map((p) => {
                 const outOfStock = p.stock <= 0;
                 return (
                   <div
                     key={p.id}
-                    onClick={() => !outOfStock && handleProductClick(p, 'RETAIL')}
-                    className={`group bg-white border rounded-xl p-3.5 flex flex-col justify-between cursor-pointer transition select-none ${
+                    onClick={() => !outOfStock && handleProductClick(p, invoicePriceType)}
+                    className={`group bg-white border rounded-xl flex flex-col justify-between cursor-pointer transition select-none ${
+                      compactMode ? 'p-2.5' : 'p-3.5'
+                    } ${
                       outOfStock 
                         ? 'opacity-55 border-slate-100 bg-slate-50' 
                         : 'border-slate-150 hover:border-sky-500 hover:shadow-lg hover:shadow-sky-500/5'
                     }`}
                   >
-                    <div className="relative">
-                      <img
-                        src={p.image || 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&q=80&w=200'}
-                        alt={p.name}
-                        className="w-full h-24 object-cover rounded-lg bg-slate-100 mb-2.5 group-hover:scale-[1.02] transition duration-200"
-                        referrerPolicy="no-referrer"
-                      />
-                      {p.stock <= parseInt(p.minStock) && !outOfStock && (
-                        <span className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-500 text-white font-bold text-[10px] rounded">Gần hết</span>
-                      )}
-                    </div>
+                    {!compactMode && (
+                      <div className="relative">
+                        <img
+                          src={p.image || 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&q=80&w=200'}
+                          alt={p.name}
+                          className="w-full h-24 object-cover rounded-lg bg-slate-100 mb-2.5 group-hover:scale-[1.02] transition duration-200"
+                          referrerPolicy="no-referrer"
+                        />
+                        {p.stock <= parseInt(p.minStock) && !outOfStock && (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-500 text-white font-bold text-[10px] rounded">Gần hết</span>
+                        )}
+                      </div>
+                    )}
                     <div>
-                      <h4 className="font-bold text-slate-800 text-xs sm:text-sm line-clamp-2 leading-tight group-hover:text-sky-600 transition">{p.name}</h4>
-                      <p className="text-slate-400 text-[10px] font-mono mt-0.5">Mã: {p.code}</p>
+                      <h4 className={`font-bold text-slate-800 line-clamp-2 leading-tight group-hover:text-sky-600 transition ${
+                        compactMode ? 'text-[11px]' : 'text-xs sm:text-sm'
+                      }`}>{p.name}</h4>
+                      <p className="text-slate-400 text-[9px] font-mono mt-0.5">Mã: {p.code}</p>
                       
-                      {/* Interactive Price selectors to choose immediately */}
-                      <div className="grid grid-cols-2 gap-1.5 mt-3 pt-2.5 border-t border-slate-100">
-                        <button
-                          type="button"
-                          disabled={outOfStock}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!outOfStock) handleProductClick(p, 'RETAIL');
-                          }}
-                          className="flex flex-col items-center justify-center py-1 px-1 rounded-lg border border-sky-100 hover:border-sky-500 hover:bg-sky-50/50 active:bg-sky-50 transition cursor-pointer"
-                          title="Chọn Bán Lẻ"
-                        >
-                          <span className="text-[9px] text-sky-600 font-bold uppercase tracking-wider">Giá lẻ</span>
-                          <span className="text-[11px] font-black text-slate-800 font-mono">{new Intl.NumberFormat('vi-VN').format(Number(p.price) || 0)}đ</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={outOfStock}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!outOfStock) handleProductClick(p, 'WHOLESALE');
-                          }}
-                          className="flex flex-col items-center justify-center py-1 px-1 rounded-lg border border-indigo-100 hover:border-indigo-500 hover:bg-indigo-50/50 active:bg-indigo-50 transition cursor-pointer"
-                          title="Chọn Bán Sỉ"
-                        >
-                          <span className="text-[9px] text-indigo-600 font-bold uppercase tracking-wider">Giá sỉ</span>
-                          <span className="text-[11px] font-black text-slate-800 font-mono">{new Intl.NumberFormat('vi-VN').format(Number(p.wholesalePrice || p.price) || 0)}đ</span>
-                        </button>
+                      {/* Price indicator corresponding to active invoicePriceType */}
+                      <div className={`flex items-center justify-between border-t border-slate-100 ${
+                        compactMode ? 'mt-1.5 pt-1.5' : 'mt-2.5 pt-2'
+                      }`}>
+                        <span className="text-slate-400 font-semibold text-[10px]">Đơn giá:</span>
+                        <span className={`font-black text-slate-800 font-mono ${
+                          compactMode ? 'text-xs' : 'text-sm'
+                        }`}>
+                          {new Intl.NumberFormat('vi-VN').format(
+                            invoicePriceType === 'RETAIL'
+                              ? p.price
+                              : invoicePriceType === 'WHOLESALE'
+                                ? (p.wholesalePrice || p.price)
+                                : (p.dealerPrice || p.price)
+                          )}đ
+                        </span>
                       </div>
 
-                      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-50 text-[10px]">
+                      <div className={`flex items-center justify-between border-t border-slate-50 text-[9px] mt-1.5 pt-1.5`}>
                         <span className="text-slate-400 font-semibold">Tồn kho</span>
-                        <span className={`font-bold px-1.5 py-0.5 rounded ${
+                        <span className={`font-bold rounded ${
+                          compactMode ? 'px-1 py-0.2' : 'px-1.5 py-0.5'
+                        } ${
                           outOfStock 
                             ? 'bg-rose-50 text-rose-600' 
                             : p.stock <= parseInt(p.minStock) ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
                         }`}>
-                          {outOfStock ? 'Hết hàng' : `${p.stock} ${p.unit}`}
+                          {outOfStock ? 'Hết' : `${p.stock} ${p.unit}`}
                         </span>
                       </div>
                     </div>
@@ -853,7 +974,11 @@ export default function POSView({
       </div>
 
       {/* RIGHT: Cashier Checkout Dashboard */}
-      <div className="w-full lg:w-96 bg-white rounded-2xl border border-slate-100 p-5 shadow-sm flex flex-col justify-between h-[600px] lg:h-full overflow-hidden">
+      <div className={`bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between h-[960px] lg:h-full transition-all duration-300 ${
+        checkoutExpanded 
+          ? 'flex-1 p-5' 
+          : compactMode ? 'w-full lg:w-80 p-3.5' : 'w-full lg:w-96 p-5'
+      }`}>
         {/* Cart Title */}
         <div className="flex flex-col gap-2 pb-3 border-b border-slate-100 mb-3.5 shrink-0">
           <div className="flex items-center justify-between">
@@ -861,32 +986,95 @@ export default function POSView({
               <h4 className="font-bold text-slate-800 text-sm">Hóa đơn xuất quầy</h4>
               <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[11px] font-bold rounded-full">{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
             </div>
-            <button 
-              onClick={() => {
-                if (cart.length > 0) {
-                  if (onShowConfirm) {
-                    onShowConfirm('Bạn có chắc chắn muốn làm trống giỏ hàng hiện tại?', () => setCart([]));
-                  } else if (window.confirm('Bạn có chắc chắn muốn làm trống giỏ hàng hiện tại?')) {
-                    setCart([]);
+            
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleCheckoutExpanded}
+                className="text-slate-400 hover:text-sky-600 text-xs font-bold flex items-center gap-1 transition"
+                title={checkoutExpanded ? "Thu nhỏ bảng thanh toán" : "Mở rộng bảng thanh toán"}
+              >
+                {checkoutExpanded ? (
+                  <>
+                    <Minimize2 className="w-3.5 h-3.5" />
+                    <span>Thu gọn</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>Mở rộng</span>
+                  </>
+                )}
+              </button>
+              <span className="text-slate-200">|</span>
+              <button 
+                onClick={() => {
+                  if (cart.length > 0) {
+                    if (onShowConfirm) {
+                      onShowConfirm('Bạn có chắc chắn muốn làm trống giỏ hàng hiện tại?', () => setCart([]));
+                    } else if (window.confirm('Bạn có chắc chắn muốn làm trống giỏ hàng hiện tại?')) {
+                      setCart([]);
+                    }
                   }
-                }
-              }}
-              className="text-slate-400 hover:text-rose-500 text-xs font-semibold flex items-center gap-1 transition"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Làm trống</span>
-            </button>
+                }}
+                className="text-slate-400 hover:text-rose-500 text-xs font-semibold flex items-center gap-1 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Làm trống</span>
+              </button>
+            </div>
           </div>
           
-          <div className="flex items-center justify-between text-xs bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
-            <span className="text-slate-500 font-medium">Danh sách lưu nháp:</span>
-            <button
-              onClick={() => setShowDraftsModal(true)}
-              className="text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1 transition"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span>Đơn nháp ({drafts.length})</span>
-            </button>
+          <div className="flex flex-col gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">Danh sách lưu nháp:</span>
+              <button
+                onClick={() => setShowDraftsModal(true)}
+                className="text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1 transition"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Đơn nháp ({drafts.length})</span>
+              </button>
+            </div>
+            <div className="border-t border-slate-200/60 my-0.5"></div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-semibold">Bảng giá áp dụng:</span>
+              <div className="flex bg-white rounded-lg p-0.5 border border-slate-200 shadow-sm shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleInvoicePriceTypeChange('RETAIL')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                    invoicePriceType === 'RETAIL'
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Bán lẻ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInvoicePriceTypeChange('WHOLESALE')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                    invoicePriceType === 'WHOLESALE'
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Bán sỉ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInvoicePriceTypeChange('DEALER')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                    invoicePriceType === 'DEALER'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Đại lý
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -900,123 +1088,190 @@ export default function POSView({
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.product.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <h5 className="font-bold text-slate-800 truncate">{item.product.name}</h5>
-                    <p className="text-[10px] text-slate-400 font-mono">Kho: {item.product.stock} {item.product.unit}</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => handleQuantityChange(item.product.id, -1)}
-                      className="w-5.5 h-5.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center text-[11px] transition"
-                    >
-                      -
-                    </button>
-                    <input
-                      id={`cart-item-qty-${item.product.id}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={item.quantity === ('' as any) ? '' : item.quantity}
-                      onChange={(e) => {
-                        const cleanVal = e.target.value.replace(/\D/g, '');
-                        if (cleanVal === '') {
-                          const updated = [...cart];
-                          const idx = updated.findIndex(x => x.product.id === item.product.id);
-                          if (idx > -1) {
-                            updated[idx].quantity = '' as any;
-                            setCart(updated);
-                          }
-                        } else {
-                          const val = parseInt(cleanVal, 10);
-                          handleDirectQuantityChange(item.product.id, val);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (item.quantity === ('' as any) || isNaN(Number(item.quantity)) || Number(item.quantity) <= 0) {
-                          handleDirectQuantityChange(item.product.id, 1);
-                        }
-                      }}
-                      className="w-9 h-5.5 text-center font-bold text-slate-800 text-xs bg-white border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 py-0"
-                    />
-                    <button
-                      onClick={() => handleQuantityChange(item.product.id, 1)}
-                      className="w-5.5 h-5.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center text-[11px] transition"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={() => handleRemoveItem(item.product.id)}
-                      className="p-1 text-slate-400 hover:text-rose-500 transition ml-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Pricing Level Selectors & Manual Pricing input */}
-                <div className="flex flex-col gap-1.5 pt-1.5 border-t border-slate-100">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] text-slate-400 font-semibold">Mức giá bán:</span>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handlePriceTypeChange(item.product.id, 'RETAIL')}
-                        className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${
-                          item.priceType === 'RETAIL'
-                            ? 'bg-sky-50 text-sky-600 border-sky-200'
-                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
-                        }`}
-                        title="Giá lẻ niêm yết"
-                      >
-                        Lẻ ({new Intl.NumberFormat('vi-VN').format(Number(item.product.price) || 0)}đ)
-                      </button>
-                      <button
-                        onClick={() => handlePriceTypeChange(item.product.id, 'WHOLESALE')}
-                        className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${
-                          item.priceType === 'WHOLESALE'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
-                        }`}
-                        title="Giá sỉ chiết khấu"
-                      >
-                        Sỉ ({new Intl.NumberFormat('vi-VN').format(Number(item.product.wholesalePrice || item.product.price) || 0)}đ)
-                      </button>
+              <div 
+                key={item.product.id} 
+                className={`bg-slate-50 border border-slate-100 rounded-xl text-xs transition-all ${
+                  checkoutExpanded 
+                    ? 'p-3.5 space-y-0.5' 
+                    : compactMode ? 'p-2 space-y-1.5' : 'p-3 space-y-2'
+                }`}
+              >
+                {checkoutExpanded ? (
+                  /* Expanded Mode Layout (Spacious grid alignment) */
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                    {/* Col 1: Name, stocks & Unit Price right after */}
+                    <div className="md:col-span-8 min-w-0 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h5 className="font-bold text-slate-800 text-sm truncate">{item.product.name}</h5>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">Kho: {item.product.stock} {item.product.unit} | Mã: {item.product.code}</p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-sky-500/15 transition shrink-0">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đơn giá:</span>
+                        <div className="flex items-center gap-0.5">
+                          <input
+                            type="text"
+                            value={new Intl.NumberFormat('vi-VN').format(Number(item.price) || 0)}
+                            onChange={(e) => {
+                              const rawVal = e.target.value.replace(/\D/g, '');
+                              handlePriceValueChange(item.product.id, Math.max(0, parseInt(rawVal) || 0));
+                            }}
+                            className="w-24 text-right font-black text-slate-800 focus:outline-none p-0 border-0 text-xs"
+                          />
+                          <span className="text-[9px] text-slate-400 font-bold">đ</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Manual price input */}
-                  <div className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-sky-500/15 transition">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Chỉnh giá bán:</span>
-                    <div className="flex items-center gap-1">
+                    {/* Col 2: Quantity Controls */}
+                    <div className="md:col-span-3 flex items-center gap-1.5 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(item.product.id, -1)}
+                        className="w-6 h-6 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center transition text-xs"
+                      >
+                        -
+                      </button>
                       <input
+                        id={`cart-item-qty-${item.product.id}`}
                         type="text"
-                        value={new Intl.NumberFormat('vi-VN').format(Number(item.price) || 0)}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={item.quantity === ('' as any) ? '' : item.quantity}
                         onChange={(e) => {
-                          const rawVal = e.target.value.replace(/\D/g, '');
-                          handlePriceValueChange(item.product.id, Math.max(0, parseInt(rawVal) || 0));
+                          const cleanVal = e.target.value.replace(/\D/g, '');
+                          if (cleanVal === '') {
+                            const updated = [...cart];
+                            const idx = updated.findIndex(x => x.product.id === item.product.id);
+                            if (idx > -1) {
+                              updated[idx].quantity = '' as any;
+                              setCart(updated);
+                            }
+                          } else {
+                            const val = parseInt(cleanVal, 10);
+                            handleDirectQuantityChange(item.product.id, val);
+                          }
                         }}
-                        className="w-24 text-right font-black text-slate-800 focus:outline-none p-0 text-xs border-0"
+                        onBlur={() => {
+                          if (item.quantity === ('' as any) || isNaN(Number(item.quantity)) || Number(item.quantity) <= 0) {
+                            handleDirectQuantityChange(item.product.id, 1);
+                          }
+                        }}
+                        className="w-10 h-6 text-center font-bold text-slate-800 bg-white border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 py-0 text-xs"
                       />
-                      <span className="text-[10px] text-slate-400 font-bold">đ</span>
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(item.product.id, 1)}
+                        className="w-6 h-6 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center transition text-xs"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {/* Col 3: Delete Button only */}
+                    <div className="md:col-span-1 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(item.product.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-
-                  {/* Item Total Price Indicator */}
-                  <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500 font-semibold">
-                    <span>Thành tiền:</span>
-                    <span className="font-mono font-extrabold text-slate-900 text-xs">
-                      {new Intl.NumberFormat('vi-VN').format((Number(item.price) || 0) * (Number(item.quantity) || 0))}đ
-                    </span>
-                  </div>
-                </div>
+                ) : (
+                  /* Standard / Compact Mode Layout */
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h5 className={`font-bold text-slate-800 truncate ${compactMode ? 'text-[11px]' : 'text-xs'}`}>{item.product.name}</h5>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <p className="text-[9px] text-slate-400 font-mono">Kho: {item.product.stock} {item.product.unit}</p>
+                          <span className="text-slate-200 text-[9px]">|</span>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus-within:ring-2 focus-within:ring-sky-500/15 transition">
+                            <span className="text-[9px] text-slate-450 font-bold uppercase tracking-wider">Đơn giá:</span>
+                            <div className="flex items-center gap-0.5">
+                              <input
+                                type="text"
+                                value={new Intl.NumberFormat('vi-VN').format(Number(item.price) || 0)}
+                                onChange={(e) => {
+                                  const rawVal = e.target.value.replace(/\D/g, '');
+                                  handlePriceValueChange(item.product.id, Math.max(0, parseInt(rawVal) || 0));
+                                }}
+                                className={`text-right font-black text-slate-800 focus:outline-none p-0 border-0 ${
+                                  compactMode ? 'w-16 text-[10px]' : 'w-20 text-[11px]'
+                                }`}
+                              />
+                              <span className="text-[9px] text-slate-400 font-bold">đ</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleQuantityChange(item.product.id, -1)}
+                          className={`bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center transition ${
+                            compactMode ? 'w-5 h-5 text-[10px]' : 'w-5.5 h-5.5 text-[11px]'
+                          }`}
+                        >
+                          -
+                        </button>
+                        <input
+                          id={`cart-item-qty-${item.product.id}`}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={item.quantity === ('' as any) ? '' : item.quantity}
+                          onChange={(e) => {
+                            const cleanVal = e.target.value.replace(/\D/g, '');
+                            if (cleanVal === '') {
+                              const updated = [...cart];
+                              const idx = updated.findIndex(x => x.product.id === item.product.id);
+                              if (idx > -1) {
+                                updated[idx].quantity = '' as any;
+                                setCart(updated);
+                              }
+                            } else {
+                              const val = parseInt(cleanVal, 10);
+                              handleDirectQuantityChange(item.product.id, val);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (item.quantity === ('' as any) || isNaN(Number(item.quantity)) || Number(item.quantity) <= 0) {
+                              handleDirectQuantityChange(item.product.id, 1);
+                            }
+                          }}
+                          className={`text-center font-bold text-slate-800 bg-white border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 py-0 ${
+                            compactMode ? 'w-8 h-5 text-[11px]' : 'w-9 h-5.5 text-xs'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleQuantityChange(item.product.id, 1)}
+                          className={`bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded flex items-center justify-center transition ${
+                            compactMode ? 'w-5 h-5 text-[10px]' : 'w-5.5 h-5.5 text-[11px]'
+                          }`}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.product.id)}
+                          className="p-1 text-slate-400 hover:text-rose-500 transition ml-0.5"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             ))
           )}
         </div>
 
         {/* Customer Select Option & Quick Add */}
-        <div className="border-t border-slate-100 pt-3.5 space-y-3 shrink-0">
+        <div className={`border-t border-slate-100 shrink-0 ${compactMode ? 'pt-2 space-y-1.5' : 'pt-3.5 space-y-3'}`}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-slate-500 text-xs font-semibold">Khách hàng thành viên:</span>
             <button
@@ -1032,7 +1287,9 @@ export default function POSView({
             onChange={(e) => {
               setSelectedCustomerId(e.target.value);
             }}
-            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+            className={`w-full bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500/20 transition-all ${
+              compactMode ? 'px-2.5 py-1.5' : 'px-3.5 py-2.5'
+            }`}
           >
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
@@ -1042,7 +1299,9 @@ export default function POSView({
           </select>
 
           {/* Money Totals section */}
-          <div className="bg-slate-50/60 p-3.5 rounded-xl border border-slate-100 space-y-2 text-xs">
+          <div className={`bg-slate-50/60 rounded-xl border border-slate-100 text-xs transition-all ${
+            compactMode ? 'p-2 space-y-1.5' : 'p-3.5 space-y-2'
+          }`}>
             <div className="flex justify-between text-slate-500">
               <span>Tổng giá trị hàng:</span>
               <span className="font-bold text-slate-800">{new Intl.NumberFormat('vi-VN').format(subtotal)}đ</span>
@@ -1063,8 +1322,8 @@ export default function POSView({
             
             {/* VAT config section */}
             <div className="flex justify-between items-center text-slate-500 pt-0.5">
-              <span>Thuế giá trị gia tăng (VAT):</span>
-              <div className="flex items-center gap-1.5">
+              <span>Thuế VAT:</span>
+              <div className="flex items-center gap-1">
                 <div className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg px-1.5 py-0.5">
                   <input
                     type="number"
@@ -1103,58 +1362,104 @@ export default function POSView({
               </div>
             )}
 
-            <div className="flex justify-between text-slate-700 font-bold border-t border-slate-100 pt-2 text-sm">
+            <div className={`flex justify-between text-slate-700 font-bold border-t border-slate-100 pt-2 ${
+              compactMode ? 'text-xs' : 'text-sm'
+            }`}>
               <span className="text-slate-800">Thanh toán thực tế:</span>
               <span className="text-sky-600 text-base">{new Intl.NumberFormat('vi-VN').format(finalAmount)}đ</span>
             </div>
           </div>
 
           {/* Payment Method Option */}
-          <div className="space-y-1.5">
-            <span className="text-slate-500 text-xs font-semibold">Hình thức thanh toán:</span>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('CASH')}
-                className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-bold transition ${
-                  paymentMethod === 'CASH'
-                    ? 'border-sky-500 bg-sky-50/50 text-sky-600'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                }`}
-              >
-                <Banknote className="w-4 h-4" />
-                <span>Tiền mặt</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('BANK_TRANSFER')}
-                className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-bold transition ${
-                  paymentMethod === 'BANK_TRANSFER'
-                    ? 'border-sky-500 bg-sky-50/50 text-sky-600'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                }`}
-              >
-                <QrCode className="w-4 h-4" />
-                <span>QR Banking</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('DEBT')}
-                className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-bold transition ${
-                  paymentMethod === 'DEBT'
-                    ? 'border-sky-500 bg-sky-50/50 text-sky-600'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                }`}
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>Ghi nợ</span>
-              </button>
+          <div className="space-y-1.5 border-t border-slate-100 pt-3">
+            <div 
+              onClick={() => {
+                const nextVal = !paymentMethodCollapsed;
+                setPaymentMethodCollapsed(nextVal);
+                localStorage.setItem('sf_payment_method_collapsed', String(nextVal));
+              }}
+              className="flex items-center justify-between cursor-pointer hover:bg-slate-50 px-2 py-1.5 rounded-lg transition text-xs font-semibold text-slate-550"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="shrink-0 text-slate-500">Hình thức thanh toán:</span>
+                {paymentMethodCollapsed && (
+                  <span className="bg-sky-50 text-sky-600 px-2 py-0.5 rounded text-[10px] font-extrabold truncate">
+                    {paymentMethod === 'CASH' ? 'Tiền mặt' : paymentMethod === 'BANK_TRANSFER' ? 'QR Banking' : 'Ghi nợ'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-sky-600 transition font-bold shrink-0">
+                <span>{paymentMethodCollapsed ? 'Mở rộng' : 'Thu gọn'}</span>
+                {paymentMethodCollapsed ? (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                )}
+              </div>
             </div>
+
+            <AnimatePresence initial={false}>
+              {!paymentMethodCollapsed && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('CASH')}
+                      className={`flex flex-col items-center gap-1 rounded-xl border text-[10px] font-bold transition-all ${
+                        compactMode ? 'py-1.5' : 'py-2'
+                      } ${
+                        paymentMethod === 'CASH'
+                          ? 'border-sky-500 bg-sky-50/50 text-sky-600'
+                          : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Banknote className="w-4 h-4" />
+                      <span>Tiền mặt</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('BANK_TRANSFER')}
+                      className={`flex flex-col items-center gap-1 rounded-xl border text-[10px] font-bold transition-all ${
+                        compactMode ? 'py-1.5' : 'py-2'
+                      } ${
+                        paymentMethod === 'BANK_TRANSFER'
+                          ? 'border-sky-500 bg-sky-50/50 text-sky-600'
+                          : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>QR Banking</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('DEBT')}
+                      className={`flex flex-col items-center gap-1 rounded-xl border text-[10px] font-bold transition-all ${
+                        compactMode ? 'py-1.5' : 'py-2'
+                      } ${
+                        paymentMethod === 'DEBT'
+                          ? 'border-sky-500 bg-sky-50/50 text-sky-600'
+                          : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Ghi nợ</span>
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Context Panels depending on Payment Method */}
           {paymentMethod === 'CASH' && (
-            <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-xl flex items-center justify-between text-xs">
+            <div className={`bg-emerald-50/50 border border-emerald-100 rounded-xl flex items-center justify-between text-xs transition-all ${
+              compactMode ? 'p-2' : 'p-3'
+            }`}>
               <span className="text-emerald-800 font-semibold">Khách đưa:</span>
               <div className="flex items-center gap-2">
                 <input
@@ -1170,7 +1475,9 @@ export default function POSView({
           )}
 
           {paymentMethod === 'BANK_TRANSFER' && (
-            <div className="bg-sky-50/30 border border-sky-100 p-3 rounded-xl flex flex-col items-center gap-2">
+            <div className={`bg-sky-50/30 border border-sky-100 rounded-xl flex flex-col items-center gap-2 transition-all ${
+              compactMode ? 'p-2' : 'p-3'
+            }`}>
               <div className="text-[10px] text-sky-700 font-semibold text-center leading-relaxed">
                 Quét mã VietQR chuyển khoản nhanh của cửa hàng
               </div>
@@ -1178,15 +1485,17 @@ export default function POSView({
                 <img
                   src={vietQrUrl}
                   alt="VietQR Vietcombank"
-                  className="w-24 h-24 object-contain"
+                  className={`${compactMode ? 'w-20 h-20' : 'w-24 h-24'} object-contain transition-all`}
                 />
               </div>
-              <span className="text-[10px] text-slate-500 font-mono uppercase">{qrBankName} STK: {qrBankAccount} ({qrAccountName})</span>
+              <span className="text-[10px] text-slate-550 font-mono uppercase text-center leading-tight">{qrBankName} STK: {qrBankAccount} <br />({qrAccountName})</span>
             </div>
           )}
 
           {paymentMethod === 'DEBT' && (
-            <div className="bg-amber-50/50 border border-amber-100 p-3 rounded-xl text-xs space-y-1">
+            <div className={`bg-amber-50/50 border border-amber-100 rounded-xl text-xs space-y-1 transition-all ${
+              compactMode ? 'p-2' : 'p-3'
+            }`}>
               <div className="flex justify-between text-amber-800 font-semibold">
                 <span>Dư nợ khách hiện tại:</span>
                 <span>{new Intl.NumberFormat('vi-VN').format(selectedCustomer.debt)}đ</span>
@@ -1195,8 +1504,8 @@ export default function POSView({
                 <span>Dư nợ sau giao dịch này:</span>
                 <span className="font-bold text-rose-600">{new Intl.NumberFormat('vi-VN').format(selectedCustomer.debt + finalAmount)}đ</span>
               </div>
-              <div className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                Hạn mức ghi nợ tối đa của đối tác này: <strong>{new Intl.NumberFormat('vi-VN').format(selectedCustomer.maxDebtLimit)}đ</strong>
+              <div className="text-[9px] text-slate-400 leading-tight">
+                Hạn mức tối đa: {new Intl.NumberFormat('vi-VN').format(selectedCustomer.maxDebtLimit)}đ
               </div>
             </div>
           )}
@@ -1208,7 +1517,9 @@ export default function POSView({
                 type="button"
                 onClick={handlePreviewInvoice}
                 disabled={cart.length === 0}
-                className={`py-2 px-3 text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition ${
+                className={`text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition-all ${
+                  compactMode ? 'py-1.5 px-2' : 'py-2 px-3'
+                } ${
                   cart.length === 0
                     ? 'bg-slate-50 border-slate-105 text-slate-300 cursor-not-allowed'
                     : 'bg-amber-50/55 border-amber-200 text-amber-700 hover:bg-amber-50'
@@ -1221,7 +1532,9 @@ export default function POSView({
                 type="button"
                 onClick={handleSaveDraft}
                 disabled={cart.length === 0}
-                className={`py-2 px-3 text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition ${
+                className={`text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition-all ${
+                  compactMode ? 'py-1.5 px-2' : 'py-2 px-3'
+                } ${
                   cart.length === 0
                     ? 'bg-slate-50 border-slate-105 text-slate-300 cursor-not-allowed'
                     : 'bg-emerald-50/55 border-emerald-200 text-emerald-700 hover:bg-emerald-50'
@@ -1235,7 +1548,9 @@ export default function POSView({
             <button
               onClick={handleCheckoutSubmit}
               disabled={cart.length === 0}
-              className={`w-full py-3 text-sm font-bold text-white rounded-xl shadow-lg flex items-center justify-center gap-2 transition ${
+              className={`w-full font-bold text-white rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all ${
+                compactMode ? 'py-2.5 text-xs' : 'py-3 text-sm'
+              } ${
                 cart.length === 0
                   ? 'bg-slate-300 shadow-none cursor-not-allowed'
                   : 'bg-sky-600 hover:bg-sky-500 shadow-sky-600/10'
@@ -1411,7 +1726,6 @@ export default function POSView({
                       <th className="py-2">Hàng hoá</th>
                       <th className="py-2 text-center">SL</th>
                       <th className="py-2 text-right">Đơn giá</th>
-                      <th className="py-2 text-right">Thành tiền</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1420,7 +1734,6 @@ export default function POSView({
                         <td className="py-2 font-semibold text-slate-800">{item.productName}</td>
                         <td className="py-2 text-center text-slate-700">{item.quantity}</td>
                         <td className="py-2 text-right text-slate-600">{new Intl.NumberFormat('vi-VN').format(item.price)}đ</td>
-                        <td className="py-2 text-right font-bold text-slate-800">{new Intl.NumberFormat('vi-VN').format(item.price * item.quantity)}đ</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1655,7 +1968,6 @@ export default function POSView({
                       <th className="py-2">Hàng hoá</th>
                       <th className="py-2 text-center">SL</th>
                       <th className="py-2 text-right">Đơn giá</th>
-                      <th className="py-2 text-right">Thành tiền</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1664,7 +1976,6 @@ export default function POSView({
                         <td className="py-2 font-semibold text-slate-800">{item.productName}</td>
                         <td className="py-2 text-center text-slate-700">{item.quantity}</td>
                         <td className="py-2 text-right text-slate-600">{new Intl.NumberFormat('vi-VN').format(item.price)}đ</td>
-                        <td className="py-2 text-right font-bold text-slate-800">{new Intl.NumberFormat('vi-VN').format(item.price * item.quantity)}đ</td>
                       </tr>
                     ))}
                   </tbody>

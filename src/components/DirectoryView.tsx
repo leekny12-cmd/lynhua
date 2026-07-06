@@ -52,6 +52,7 @@ export default function DirectoryView({
   const [pImportPrice, setPImportPrice] = useState<number>(0);
   const [pPrice, setPPrice] = useState<number>(0);
   const [pWholesalePrice, setPWholesalePrice] = useState<number>(0);
+  const [pDealerPrice, setPDealerPrice] = useState<number>(0);
   const [pStock, setPStock] = useState<number>(0);
   const [pMinStock, setPMinStock] = useState<string>('10');
   const [pUnit, setPUnit] = useState('Gói');
@@ -89,6 +90,7 @@ export default function DirectoryView({
         importPrice: pImportPrice,
         price: pPrice,
         wholesalePrice: pWholesalePrice || pPrice,
+        dealerPrice: pDealerPrice || pPrice,
         stock: pStock,
         minStock: pMinStock,
         unit: pUnit,
@@ -104,6 +106,7 @@ export default function DirectoryView({
         importPrice: pImportPrice,
         price: pPrice,
         wholesalePrice: pWholesalePrice || pPrice,
+        dealerPrice: pDealerPrice || pPrice,
         stock: pStock,
         minStock: pMinStock,
         unit: pUnit,
@@ -124,6 +127,7 @@ export default function DirectoryView({
     setPImportPrice(0);
     setPPrice(0);
     setPWholesalePrice(0);
+    setPDealerPrice(0);
     setPStock(0);
     setPMinStock('10');
     setPUnit('Gói');
@@ -138,6 +142,7 @@ export default function DirectoryView({
     setPImportPrice(p.importPrice);
     setPPrice(p.price);
     setPWholesalePrice(p.wholesalePrice || p.price);
+    setPDealerPrice(p.dealerPrice || p.price);
     setPStock(p.stock);
     setPMinStock(p.minStock);
     setPUnit(p.unit);
@@ -163,6 +168,7 @@ export default function DirectoryView({
     setPImportPrice(p.importPrice);
     setPPrice(p.price);
     setPWholesalePrice(p.wholesalePrice || p.price);
+    setPDealerPrice(p.dealerPrice || p.price);
     setPStock(p.stock);
     setPMinStock(p.minStock);
     setPUnit(p.unit);
@@ -421,6 +427,7 @@ export default function DirectoryView({
                       <th className="py-3 px-4">Nhóm danh mục</th>
                       <th className="py-3 px-4 text-right">Giá nhập</th>
                       <th className="py-3 px-4 text-right">Giá sỉ</th>
+                      <th className="py-3 px-4 text-right text-indigo-600">Giá ĐL</th>
                       <th className="py-3 px-4 text-right">Giá lẻ</th>
                       <th className="py-3 px-4 text-center">Tồn kho</th>
                       <th className="py-3 px-4 text-center">Hành động</th>
@@ -429,7 +436,7 @@ export default function DirectoryView({
                   <tbody className="divide-y divide-slate-50">
                     {filteredProducts.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                        <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
                           <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                           <span>Không tìm thấy mặt hàng nào khớp bộ lọc.</span>
                         </td>
@@ -478,6 +485,7 @@ export default function DirectoryView({
                               </td>
                               <td className="py-3 px-4 text-right font-bold text-slate-500">{new Intl.NumberFormat('vi-VN').format(p.importPrice)}đ</td>
                               <td className="py-3 px-4 text-right font-bold text-amber-600">{new Intl.NumberFormat('vi-VN').format(p.wholesalePrice || p.price)}đ</td>
+                              <td className="py-3 px-4 text-right font-bold text-indigo-600">{new Intl.NumberFormat('vi-VN').format(p.dealerPrice || p.price)}đ</td>
                               <td className="py-3 px-4 text-right font-extrabold text-sky-600">{new Intl.NumberFormat('vi-VN').format(p.price)}đ</td>
                               <td className="py-3 px-4 text-center">
                                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] border ${
@@ -543,7 +551,7 @@ export default function DirectoryView({
                             
                             {isExpanded && (
                               <tr className="bg-slate-50/65">
-                                <td colSpan={7} className="p-4">
+                                <td colSpan={8} className="p-4">
                                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                                     {/* Financial analysis */}
                                     <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 shadow-sm space-y-2">
@@ -574,6 +582,20 @@ export default function DirectoryView({
                                           <span className="text-slate-400">Tỷ suất lợi nhuận sỉ:</span>
                                           <span className="font-extrabold px-2 py-0.5 bg-amber-50 text-amber-700 rounded-md text-[10px]">
                                             {(p.wholesalePrice || p.price) > 0 ? ((((p.wholesalePrice || p.price) - p.importPrice) / (p.wholesalePrice || p.price)) * 100).toFixed(1) : 0}%
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-slate-400">Giá đại lý (ĐL):</span>
+                                          <span className="font-bold text-slate-800">{new Intl.NumberFormat('vi-VN').format(p.dealerPrice || p.price)}đ</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-slate-400">Lợi nhuận ĐL:</span>
+                                          <span className="font-extrabold text-indigo-600">+{new Intl.NumberFormat('vi-VN').format((p.dealerPrice || p.price) - p.importPrice)}đ</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-slate-400">Tỷ suất LN ĐL:</span>
+                                          <span className="font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[10px]">
+                                            {(p.dealerPrice || p.price) > 0 ? ((((p.dealerPrice || p.price) - p.importPrice) / (p.dealerPrice || p.price)) * 100).toFixed(1) : 0}%
                                           </span>
                                         </div>
                                       </div>
@@ -722,7 +744,7 @@ export default function DirectoryView({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-1.5">
                     <div>
                       <label className="block text-slate-500 font-semibold mb-1 text-[10px]">Giá nhập *</label>
                       <input
@@ -732,7 +754,7 @@ export default function DirectoryView({
                         onChange={(e) => setPImportPrice(Math.max(0, parseFloat(e.target.value) || 0))}
                         required
                         placeholder="0đ"
-                        className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800 font-bold text-xs"
+                        className="w-full px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800 font-bold text-xs"
                       />
                     </div>
                     <div>
@@ -744,7 +766,19 @@ export default function DirectoryView({
                         onChange={(e) => setPWholesalePrice(Math.max(0, parseFloat(e.target.value) || 0))}
                         required
                         placeholder="0đ"
-                        className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-amber-600 font-bold text-xs"
+                        className="w-full px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-amber-600 font-bold text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-500 font-semibold mb-1 text-[10px]">Giá ĐL *</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={pDealerPrice === 0 ? '' : pDealerPrice}
+                        onChange={(e) => setPDealerPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                        required
+                        placeholder="0đ"
+                        className="w-full px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-indigo-600 font-bold text-xs"
                       />
                     </div>
                     <div>
@@ -756,7 +790,7 @@ export default function DirectoryView({
                         onChange={(e) => setPPrice(Math.max(0, parseFloat(e.target.value) || 0))}
                         required
                         placeholder="0đ"
-                        className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-sky-600 font-bold text-xs"
+                        className="w-full px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-sky-600 font-bold text-xs"
                       />
                     </div>
                   </div>
