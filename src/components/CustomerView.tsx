@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Customer, DebtTransaction } from '../types';
-import { Users, HandCoins, UserPlus, FileClock, Phone, MapPin, X, CheckCircle, Info, Trash2 } from 'lucide-react';
+import { Users, HandCoins, UserPlus, FileClock, Phone, MapPin, X, CheckCircle, Info, Trash2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface CustomerViewProps {
   customers: Customer[];
   debtTransactions: DebtTransaction[];
   onAddCustomer: (name: string, phone: string, address: string, maxDebt: number) => Customer;
+  onUpdateCustomer: (id: string, name: string, phone: string, email: string, address: string, maxDebt: number) => void;
   onCollectDebt: (customerId: string, amount: number, note: string) => void;
   onDeleteCustomer?: (id: string) => void;
   onDeleteDebtTransaction?: (id: string) => void;
@@ -18,6 +19,7 @@ export default function CustomerView({
   customers,
   debtTransactions,
   onAddCustomer,
+  onUpdateCustomer,
   onCollectDebt,
   onDeleteCustomer,
   onDeleteDebtTransaction,
@@ -39,6 +41,41 @@ export default function CustomerView({
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [collectAmount, setCollectAmount] = useState<number>(0);
   const [collectNote, setCollectNote] = useState('Thu tiền mặt nợ khách tại quầy');
+
+  // Customer Edit States
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editMaxDebt, setEditMaxDebt] = useState<number>(5000000);
+
+  const handleEditClick = (cust: Customer) => {
+    setEditingCustomer(cust);
+    setEditName(cust.name);
+    setEditPhone(cust.phone);
+    setEditEmail(cust.email || '');
+    setEditAddress(cust.address || '');
+    setEditMaxDebt(cust.maxDebtLimit);
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    if (!editName || !editPhone) {
+      if (onShowAlert) {
+        onShowAlert('Vui lòng bổ sung đầy đủ tên và số điện thoại!', 'error');
+      } else {
+        alert('Vui lòng bổ sung đầy đủ tên và số điện thoại!');
+      }
+      return;
+    }
+    onUpdateCustomer(editingCustomer.id, editName, editPhone, editEmail, editAddress, editMaxDebt);
+    setShowEditModal(false);
+    setEditingCustomer(null);
+  };
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,6 +211,14 @@ export default function CustomerView({
                             <span>Thu nợ</span>
                           </button>
                         ) : null}
+
+                        <button
+                          onClick={() => handleEditClick(cust)}
+                          className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                          title="Sửa thông tin khách hàng"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
 
                         {cust.id !== 'CUST001' ? (
                           <button
@@ -410,6 +455,82 @@ export default function CustomerView({
                   className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition shadow-lg shadow-sky-600/10 text-xs"
                 >
                   Xác nhận nộp quỹ
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showEditModal && editingCustomer && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-slate-100"
+            >
+              <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                <span className="font-bold text-slate-800">Cập Nhật Thông Tin Khách Hàng</span>
+                <button onClick={() => { setShowEditModal(false); setEditingCustomer(null); }} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"><X className="w-5 h-5" /></button>
+              </div>
+              <form onSubmit={handleEditSubmit} className="p-5 space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Tên khách hàng *</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                    placeholder="vd: Nguyễn Văn Hải"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Số điện thoại *</label>
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    required
+                    placeholder="Nhập SĐT..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Email chính</label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="customer@email.com"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Địa chỉ giao nhận hàng</label>
+                  <input
+                    type="text"
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    placeholder="Nhập số nhà, tên đường..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Hạn mức nợ tối đa (đ)</label>
+                  <input
+                    type="number"
+                    value={editMaxDebt}
+                    onChange={(e) => setEditMaxDebt(Math.max(0, parseInt(e.target.value) || 0))}
+                    placeholder="Mặc định: 5,000,000 VNĐ"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800 font-semibold text-rose-600"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition shadow-lg shadow-sky-600/10 text-xs"
+                >
+                  Lưu Thay Đổi
                 </button>
               </form>
             </motion.div>
