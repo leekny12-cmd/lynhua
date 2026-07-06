@@ -1,4 +1,4 @@
-import { User, UserRole, Category, Product, Customer, Supplier, Order, PurchaseOrder, DebtTransaction, ActivityLog } from '../types';
+import { User, UserRole, Category, Product, Customer, Supplier, Order, PurchaseOrder, DebtTransaction, ActivityLog, CashTransaction } from '../types';
 
 export const INITIAL_USERS: User[] = [
   {
@@ -49,6 +49,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 85000,
     price: 135000,
     wholesalePrice: 110000,
+    dealerPrice: 100000,
     stock: 45,
     minStock: '10',
     unit: 'Gói',
@@ -63,6 +64,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 19500,
     price: 26000,
     wholesalePrice: 22000,
+    dealerPrice: 21000,
     stock: 120,
     minStock: '20',
     unit: 'Hộp',
@@ -77,6 +79,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 90000,
     price: 150000,
     wholesalePrice: 120000,
+    dealerPrice: 110000,
     stock: 28,
     minStock: '8',
     unit: 'Gói',
@@ -91,6 +94,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 3100,
     price: 4500,
     wholesalePrice: 3800,
+    dealerPrice: 3500,
     stock: 350,
     minStock: '50',
     unit: 'Thùng',
@@ -105,6 +109,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 42000,
     price: 54000,
     wholesalePrice: 48000,
+    dealerPrice: 45000,
     stock: 65,
     minStock: '15',
     unit: 'Chai',
@@ -119,6 +124,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     importPrice: 32000,
     price: 43500,
     wholesalePrice: 38000,
+    dealerPrice: 35000,
     stock: 8, // Trigger low stock!
     minStock: '15',
     unit: 'Túi',
@@ -355,5 +361,129 @@ export const INITIAL_LOGS: ActivityLog[] = [
     details: 'Đăng nhập hệ thống bán hàng thành công',
     ipAddress: '192.168.1.22',
     createdAt: '2026-07-01 08:12:10'
+  }
+];
+
+export const INITIAL_CASH_TRANSACTIONS: CashTransaction[] = [
+  {
+    id: 'TX001',
+    code: 'PT0001',
+    type: 'INCOME',
+    amount: 1924000,
+    category: 'Doanh thu bán hàng',
+    partnerName: 'Nguyễn Văn Hải (Cà phê Góc Phố)',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thu tiền hóa đơn HD0001',
+    date: '2026-06-28',
+    createdAt: '2026-06-28 10:45:12'
+  },
+  {
+    id: 'TX002',
+    code: 'PT0002',
+    type: 'INCOME',
+    amount: 151500,
+    category: 'Doanh thu bán hàng',
+    partnerName: 'Khách lẻ vãng lai',
+    paymentMethod: 'CASH',
+    note: 'Thu tiền hóa đơn HD0002',
+    date: '2026-06-29',
+    createdAt: '2026-06-29 16:20:05'
+  },
+  {
+    id: 'TX003',
+    code: 'PC0001',
+    type: 'EXPENSE',
+    amount: 2340000,
+    category: 'Nhập hàng hóa',
+    partnerName: 'Công ty Cổ phần sữa Vinamilk Việt Nam',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thanh toán đơn nhập hàng NH0001',
+    date: '2026-06-25',
+    createdAt: '2026-06-25 09:00:00'
+  },
+  {
+    id: 'TX004',
+    code: 'PC0002',
+    type: 'EXPENSE',
+    amount: 1000000,
+    category: 'Nhập hàng hóa',
+    partnerName: 'Tổng Kho Unilever Miền Nam',
+    paymentMethod: 'CASH',
+    note: 'Thanh toán một phần đơn nhập hàng NH0002',
+    date: '2026-06-26',
+    createdAt: '2026-06-26 14:10:00'
+  },
+  {
+    id: 'TX005',
+    code: 'PC0003',
+    type: 'EXPENSE',
+    amount: 5000000,
+    category: 'Chi phí mặt bằng',
+    partnerName: 'Chủ nhà Lê Văn Tám',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thanh toán tiền thuê mặt bằng cửa hàng tháng 6/2026',
+    date: '2026-06-05',
+    createdAt: '2026-06-05 08:30:00'
+  },
+  {
+    id: 'TX006',
+    code: 'PC0004',
+    type: 'EXPENSE',
+    amount: 1200000,
+    category: 'Tiền điện nước',
+    partnerName: 'Điện lực lực lượng EVN',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Tiền điện nước sinh hoạt tháng 5/2026',
+    date: '2026-06-08',
+    createdAt: '2026-06-08 14:00:00'
+  },
+  {
+    id: 'TX007',
+    code: 'PC0005',
+    type: 'EXPENSE',
+    amount: 7500000,
+    category: 'Lương nhân viên',
+    partnerName: 'Nguyễn Thị Thuỷ',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thanh toán lương nhân viên tháng 5/2026',
+    date: '2026-06-05',
+    createdAt: '2026-06-05 17:30:00'
+  },
+  {
+    id: 'TX008',
+    code: 'PT0003',
+    type: 'INCOME',
+    amount: 1500000,
+    category: 'Khác',
+    partnerName: 'Thu gom phế liệu chai nhựa',
+    paymentMethod: 'CASH',
+    note: 'Thu thanh lý bao bì giấy và chai vỏ nhựa tồn kho',
+    date: '2026-06-15',
+    createdAt: '2026-06-15 10:00:00'
+  },
+  // July data for timeline
+  {
+    id: 'TX009',
+    code: 'PT0004',
+    type: 'INCOME',
+    amount: 3500000,
+    category: 'Doanh thu bán hàng',
+    partnerName: 'Nguyễn Văn Hải (Cà phê Góc Phố)',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thu tiền mặt trực tiếp',
+    date: '2026-07-02',
+    createdAt: '2026-07-02 11:30:00'
+  },
+  {
+    id: 'TX010',
+    code: 'PC0006',
+    type: 'EXPENSE',
+    amount: 5000000,
+    category: 'Chi phí mặt bằng',
+    partnerName: 'Chủ nhà Lê Văn Tám',
+    paymentMethod: 'BANK_TRANSFER',
+    note: 'Thanh toán tiền thuê mặt bằng cửa hàng tháng 7/2026',
+    date: '2026-07-05',
+    createdAt: '2026-07-05 09:00:00'
   }
 ];
