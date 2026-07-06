@@ -10,7 +10,8 @@ import {
   PurchaseOrder,
   DebtTransaction,
   ActivityLog,
-  StoreConfig
+  StoreConfig,
+  CashTransaction
 } from './types';
 import {
   INITIAL_USERS,
@@ -21,7 +22,8 @@ import {
   INITIAL_ORDERS,
   INITIAL_PURCHASE_ORDERS,
   INITIAL_DEBT_TRANSACTIONS,
-  INITIAL_LOGS
+  INITIAL_LOGS,
+  INITIAL_CASH_TRANSACTIONS
 } from './data/initialData';
 
 // Modular Components
@@ -35,6 +37,7 @@ import StaffView from './components/StaffView';
 import SystemView from './components/SystemView';
 import PHPCodeExplorer from './components/PHPCodeExplorer';
 import ReportView from './components/ReportView';
+import CashFlowView from './components/CashFlowView';
 
 // Icons
 import {
@@ -55,7 +58,8 @@ import {
   Check,
   AlertCircle,
   AlertTriangle,
-  TrendingUp
+  TrendingUp,
+  Coins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -93,6 +97,7 @@ export default function App() {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => getStored<PurchaseOrder[]>('sf_purchase_orders', INITIAL_PURCHASE_ORDERS));
   const [debtTransactions, setDebtTransactions] = useState<DebtTransaction[]>(() => getStored<DebtTransaction[]>('sf_debt_transactions', INITIAL_DEBT_TRANSACTIONS));
   const [logs, setLogs] = useState<ActivityLog[]>(() => getStored<ActivityLog[]>('sf_logs', INITIAL_LOGS));
+  const [cashTransactions, setCashTransactions] = useState<CashTransaction[]>(() => getStored<CashTransaction[]>('sf_cash_transactions', INITIAL_CASH_TRANSACTIONS));
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(() => getStored<StoreConfig>('sf_store_config', DEFAULT_STORE_CONFIG));
 
 
@@ -190,6 +195,10 @@ export default function App() {
   useEffect(() => {
     setStored('sf_logs', logs);
   }, [logs]);
+
+  useEffect(() => {
+    setStored('sf_cash_transactions', cashTransactions);
+  }, [cashTransactions]);
 
   useEffect(() => {
     setStored('sf_store_config', storeConfig);
@@ -334,6 +343,36 @@ export default function App() {
     logAction('Thêm NCC', `Bổ sung nhà cung cấp: ${name}`);
   };
 
+  const handleAddTransaction = (newTx: Omit<CashTransaction, 'id' | 'code' | 'createdAt'>) => {
+    const isIncome = newTx.type === 'INCOME';
+    const prefix = isIncome ? 'PT' : 'PC';
+    const countInDay = cashTransactions.filter(t => t.date === newTx.date).length + 1;
+    const dateCompact = newTx.date.replace(/-/g, '').substring(2); // YYMMDD
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const code = `${prefix}${dateCompact}_${String(countInDay).padStart(2, '0')}_${randomSuffix}`;
+
+    const created: CashTransaction = {
+      ...newTx,
+      id: `TX_${Date.now()}`,
+      code,
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+
+    setCashTransactions(prev => [created, ...prev]);
+    logAction(
+      isIncome ? 'Lập phiếu Thu' : 'Lập phiếu Chi',
+      `Tạo chứng từ ${code} trị giá ${new Intl.NumberFormat('vi-VN').format(newTx.amount)}đ cho hạng mục '${newTx.category}'`
+    );
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+    const match = cashTransactions.find(t => t.id === id);
+    if (match) {
+      setCashTransactions(prev => prev.filter(t => t.id !== id));
+      logAction('Xoá chứng từ', `Xoá phiếu ${match.code} trị giá ${new Intl.NumberFormat('vi-VN').format(match.amount)}đ`);
+    }
+  };
+
   const handleImportGoods = (newPo: Omit<PurchaseOrder, 'id' | 'code' | 'createdAt'>) => {
     const importCode = `NK${Math.floor(1000 + Math.random() * 9000)}`;
     const created: PurchaseOrder = {
@@ -376,6 +415,25 @@ export default function App() {
       }));
     }
 
+    // Auto-create Cash flow transaction (Phiếu chi) for actual paid amount
+    if (newPo.paidAmount > 0) {
+      const isCash = newPo.paymentMethod === 'CASH';
+      const codeSuffix = Math.floor(100 + Math.random() * 900);
+      const autoTx: CashTransaction = {
+        id: `TX_${Date.now()}_AUTO`,
+        code: `PC_AUTO_${codeSuffix}`,
+        type: 'EXPENSE',
+        amount: newPo.paidAmount,
+        category: 'Nhập hàng hóa',
+        partnerName: newPo.supplierName,
+        paymentMethod: isCash ? 'CASH' : 'BANK_TRANSFER',
+        note: `Thanh toán tự động cho phiếu nhập hàng ${importCode}`,
+        date: created.createdAt.split(' ')[0],
+        createdAt: created.createdAt
+      };
+      setCashTransactions(prev => [autoTx, ...prev]);
+    }
+
     setPurchaseOrders(prev => [created, ...prev]);
     logAction('Nhập hàng kho', `Xác nhận nhập kho phiếu ${importCode} trị giá ${new Intl.NumberFormat('vi-VN').format(newPo.totalAmount)}đ`);
   };
@@ -415,6 +473,25 @@ export default function App() {
         }
         return c;
       }));
+    }
+
+    // Auto-create Cash flow transaction (Phiếu thu) for actual paid amount
+    if (newOrder.paidAmount > 0) {
+      const isCash = newOrder.paymentMethod === 'CASH';
+      const codeSuffix = Math.floor(100 + Math.random() * 900);
+      const autoTx: CashTransaction = {
+        id: `TX_${Date.now()}_AUTO`,
+        code: `PT_AUTO_${codeSuffix}`,
+        type: 'INCOME',
+        amount: newOrder.paidAmount,
+        category: 'Doanh thu bán hàng',
+        partnerName: newOrder.customerName || 'Khách vãng lai',
+        paymentMethod: isCash ? 'CASH' : 'BANK_TRANSFER',
+        note: `Thu tiền tự động từ hoá đơn POS ${newOrder.code}`,
+        date: newOrder.createdAt.split(' ')[0],
+        createdAt: newOrder.createdAt
+      };
+      setCashTransactions(prev => [autoTx, ...prev]);
     }
 
     logAction('Bán hàng POS', `Xuất thành công Hoá đơn ${newOrder.code}, trị giá ${new Intl.NumberFormat('vi-VN').format(newOrder.finalAmount)}đ`);
@@ -529,6 +606,9 @@ export default function App() {
       setDebtTransactions(prev => prev.filter(tx => !(tx.partnerId === po.supplierId && tx.note.includes(po.code))));
     }
 
+    // 3. Remove corresponding auto cash transactions
+    setCashTransactions(prev => prev.filter(tx => !tx.note.includes(po.code)));
+
     setPurchaseOrders(prev => prev.filter(p => p.id !== poId));
     logAction('Xóa phiếu nhập kho', `Xóa phiếu nhập hàng ${po.code} trị giá ${new Intl.NumberFormat('vi-VN').format(po.totalAmount)}đ (đã khôi phục số lượng tồn kho)`);
   };
@@ -559,6 +639,9 @@ export default function App() {
       setDebtTransactions(prev => prev.filter(tx => !(tx.partnerId === order.customerId && tx.note.includes(order.code))));
     }
 
+    // 3. Remove corresponding auto cash transactions
+    setCashTransactions(prev => prev.filter(tx => !tx.note.includes(order.code)));
+
     setOrders(prev => prev.filter(o => o.id !== orderId));
     logAction('Hủy đơn hàng POS', `Xóa đơn hàng bán POS ${order.code} trị giá ${new Intl.NumberFormat('vi-VN').format(order.finalAmount)}đ (đã hoàn trả tồn kho và thu hồi công nợ nếu có)`);
   };
@@ -579,6 +662,11 @@ export default function App() {
     // Also remove their debt transactions
     setDebtTransactions(prev => prev.filter(tx => tx.partnerId !== customerId));
     logAction('Xóa khách hàng', `Xóa khách hàng '${customer.name}' cùng toàn bộ lịch sử nợ liên quan`);
+  };
+
+  const handleUpdateCustomer = (id: string, name: string, phone: string, email: string, address: string, maxDebt: number) => {
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, name, phone, email, address, maxDebtLimit: maxDebt } : c));
+    logAction('Cập nhật khách hàng', `Chỉnh sửa thông tin đối tác khách hàng: ${name} (${phone})`);
   };
 
   const handleDeleteDebtTransaction = (transactionId: string) => {
@@ -752,6 +840,7 @@ export default function App() {
     { id: 'INVENTORY', name: 'Kho & Nhập Hàng', icon: Forklift, roles: ['ADMIN', 'STOCKKEEPER'] },
     { id: 'CUSTOMERS', name: 'Quản Lý Khách Hàng', icon: UserCheck2, roles: ['ADMIN', 'SELLER', 'STOCKKEEPER'] },
     { id: 'REPORT', name: 'Báo Cáo Thống Kê', icon: TrendingUp, roles: ['ADMIN', 'SELLER', 'STOCKKEEPER'] },
+    { id: 'CASHFLOW', name: 'Sổ Quỹ & Thu Chi', icon: Coins, roles: ['ADMIN', 'SELLER'] },
     { id: 'STAFF', name: 'Nhân Viên & Quyền', icon: Lock, roles: ['ADMIN'] },
     { id: 'SYSTEM', name: 'Nhật Ký & Sao Lưu', icon: Activity, roles: ['ADMIN'] },
     { id: 'PHP_CODE', name: 'IDE Mã Nguồn PHP 8.3', icon: FileCode2, roles: ['ADMIN', 'SELLER', 'STOCKKEEPER'] }
@@ -938,6 +1027,7 @@ export default function App() {
                   customers={customers}
                   debtTransactions={debtTransactions}
                   onAddCustomer={handleAddCustomer}
+                  onUpdateCustomer={handleUpdateCustomer}
                   onCollectDebt={handleCollectDebt}
                   onDeleteCustomer={handleDeleteCustomer}
                   onDeleteDebtTransaction={handleDeleteDebtTransaction}
@@ -985,6 +1075,17 @@ export default function App() {
                   products={products}
                   orders={orders}
                   categories={categories}
+                />
+              )}
+
+              {currentView === 'CASHFLOW' && (
+                <CashFlowView
+                  transactions={cashTransactions}
+                  currentUser={currentUser}
+                  onAddTransaction={handleAddTransaction}
+                  onDeleteTransaction={handleDeleteTransaction}
+                  onShowConfirm={showConfirm}
+                  onShowAlert={showAlert}
                 />
               )}
 
