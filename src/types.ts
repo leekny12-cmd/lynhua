@@ -30,6 +30,7 @@ export interface Product {
   importPrice: number;
   price: number; // Retail Price
   wholesalePrice: number; // Wholesale Price
+  dealerPrice: number; // Dealer Price / Giá Đại Lý
   stock: number;
   minStock: string; // Min stock trigger
   unit: string;
@@ -143,4 +144,18 @@ export interface StoreConfig {
   bankAccount?: string;
   bankAccountName?: string;
 }
+
+export interface CashTransaction {
+  id: string;
+  code: string; // e.g. PT0001, PC0001
+  type: 'INCOME' | 'EXPENSE'; // INCOME = Thu, EXPENSE = Chi
+  amount: number;
+  category: string; // e.g., 'Bán hàng', 'Nhập hàng', 'Chi phí mặt bằng', 'Lương nhân viên', 'Tiền điện nước', 'Khác'
+  partnerName?: string; // Tên khách hàng, NCC, đối tác liên quan
+  paymentMethod: 'CASH' | 'BANK_TRANSFER';
+  note: string;
+  date: string; // YYYY-MM-DD
+  createdAt: string;
+}
+
 
